@@ -14,6 +14,7 @@ pub enum Type {
     },
     Type,
     Unit,
+    Never,
     Bool,
     ISize,
 }
@@ -53,6 +54,7 @@ impl Type {
             }
             (&Type::Type, &Type::Type) => true,
             (&Type::Unit, &Type::Unit) => true,
+            (&Type::Never, &Type::Never) => true,
             (&Type::Bool, &Type::Bool) => true,
             (&Type::ISize, &Type::ISize) => true,
 

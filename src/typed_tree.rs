@@ -7,6 +7,14 @@ use crate::{
 pub type TypedNodeID<'filepath> = NodeID<TypedNode<'filepath>>;
 pub type TypeNodes<'filepath> = Nodes<TypedNode<'filepath>>;
 
+pub type NameID<'filepath> = NodeID<Name<'filepath>>;
+pub type Names<'filepath> = Nodes<Name<'filepath>>;
+
+pub struct Name<'filepath> {
+    pub name: Option<String>,
+    pub node: TypedNodeID<'filepath>,
+}
+
 #[derive(Debug, Clone)]
 pub enum TypedNode<'filepath> {
     Integer {
@@ -37,7 +45,7 @@ pub enum TypedNode<'filepath> {
         location: SourceLocation<'filepath>,
         /// the type of the last expression is its type, otherwise its unit
         type_: TypeID,
-        // TODO: label ids
+        label: Option<NameID<'filepath>>,
         expressions: TypedPattern<'filepath>,
     },
     If {
@@ -53,8 +61,16 @@ pub enum TypedNode<'filepath> {
         location: SourceLocation<'filepath>,
         /// this is always unit
         type_: TypeID,
+        label: NameID<'filepath>,
         condition: TypedNodeID<'filepath>,
         body: TypedNodeID<'filepath>,
+    },
+    Break {
+        location: SourceLocation<'filepath>,
+        /// this is always never
+        type_: TypeID,
+        target: NameID<'filepath>,
+        value: TypedNodeID<'filepath>,
     },
     Unit {
         location: SourceLocation<'filepath>,
@@ -73,12 +89,12 @@ pub enum TypedPattern<'filepath> {
     Let {
         location: SourceLocation<'filepath>,
         type_: TypeID,
-        // TODO: name ids
+        name: NameID<'filepath>,
     },
     Const {
         location: SourceLocation<'filepath>,
         type_: TypeID,
-        // TODO: name ids
+        name: NameID<'filepath>,
     },
 }
 
@@ -92,6 +108,7 @@ impl<'filepath> TypedNode<'filepath> {
             | TypedNode::Block { location, .. }
             | TypedNode::If { location, .. }
             | TypedNode::While { location, .. }
+            | TypedNode::Break { location, .. }
             | TypedNode::Unit { location, .. } => location,
         }
     }
@@ -105,6 +122,7 @@ impl<'filepath> TypedNode<'filepath> {
             | TypedNode::Block { type_, .. }
             | TypedNode::If { type_, .. }
             | TypedNode::While { type_, .. }
+            | TypedNode::Break { type_, .. }
             | TypedNode::Unit { type_, .. } => type_,
         }
     }
