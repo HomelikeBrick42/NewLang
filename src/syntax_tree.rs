@@ -88,6 +88,16 @@ pub enum SyntaxNode<'filepath, 'source> {
         name: &'source str,
         type_: Option<SyntaxNodeID<'filepath, 'source>>,
     },
+    Const {
+        const_location: SourceLocation<'filepath>,
+        name_location: SourceLocation<'filepath>,
+        name: &'source str,
+        type_: Option<SyntaxNodeID<'filepath, 'source>>,
+    },
+    Unit {
+        open_parenthesis_location: SourceLocation<'filepath>,
+        close_parenthesis_location: SourceLocation<'filepath>,
+    },
     Assignment {
         pattern: SyntaxNodeID<'filepath, 'source>,
         equals_location: SourceLocation<'filepath>,
@@ -134,6 +144,11 @@ impl<'filepath, 'source> SyntaxNode<'filepath, 'source> {
             } => open_parenthesis_location,
             Self::Break { break_location, .. } => break_location,
             Self::Let { let_location, .. } => let_location,
+            Self::Const { const_location, .. } => const_location,
+            Self::Unit {
+                open_parenthesis_location,
+                ..
+            } => open_parenthesis_location,
             Self::Assignment {
                 equals_location, ..
             } => equals_location,

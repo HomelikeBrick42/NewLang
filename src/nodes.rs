@@ -80,13 +80,6 @@ impl<T> Nodes<T> {
         id
     }
 
-    pub fn add_deduplicate(&mut self, node: T, mut eq: impl FnMut(&T, &T) -> bool) -> NodeID<T> {
-        self.nodes
-            .iter()
-            .find_map(|(&id, found)| eq(&node, found).then_some(id))
-            .unwrap_or_else(|| self.add(node))
-    }
-
     pub fn remove(&mut self, node: NodeID<T>) -> Option<T> {
         self.nodes.remove(&node)
     }

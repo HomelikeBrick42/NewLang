@@ -5,34 +5,57 @@ pub type Types = Nodes<Type>;
 
 #[derive(Debug, Clone)]
 pub enum Type {
-    Unresolved { resolved: Option<TypeID> },
-    Tuple { types: Vec<TypeID> },
+    Unresolved {
+        resolved: Option<TypeID>,
+    },
+    Procedure {
+        parameters: Vec<TypeID>,
+        return_type: TypeID,
+    },
+    Type,
+    Unit,
+    Bool,
     ISize,
 }
 
 impl Type {
-    pub fn equal(&self, other: &Type, types: &Types) -> bool {
-        match (self, other) {
+    pub fn equal(a: &Type, b: &Type, types: &Types) -> bool {
+        match (a, b) {
             (
                 &Type::Unresolved {
                     resolved: Some(resolved),
                 },
                 _,
-            ) => types[resolved].equal(other, types),
+            ) => Type::equal(&types[resolved], b, types),
             (
                 _,
                 &Type::Unresolved {
                     resolved: Some(resolved),
                 },
-            ) => self.equal(&types[resolved], types),
-            (Type::Tuple { types: a_types }, Type::Tuple { types: b_types }) => {
-                a_types.len() == b_types.len()
-                    && a_types
+            ) => Type::equal(a, &types[resolved], types),
+
+            (
+                &Type::Procedure {
+                    parameters: ref a_parameters,
+                    return_type: a_return_type,
+                },
+                &Type::Procedure {
+                    parameters: ref b_parameters,
+                    return_type: b_return_type,
+                },
+            ) => {
+                Type::equal(&types[a_return_type], &types[b_return_type], types)
+                    && a_parameters.len() == b_parameters.len()
+                    && a_parameters
                         .iter()
-                        .zip(b_types)
-                        .all(|(&a, &b)| types[a].equal(&types[b], types))
+                        .zip(b_parameters)
+                        .all(|(&a, &b)| Type::equal(&types[a], &types[b], types))
             }
-            (Type::ISize, Type::ISize) => true,
+            (&Type::Type, &Type::Type) => true,
+            (&Type::Unit, &Type::Unit) => true,
+            (&Type::Bool, &Type::Bool) => true,
+            (&Type::ISize, &Type::ISize) => true,
+
             (_, _) => false,
         }
     }
