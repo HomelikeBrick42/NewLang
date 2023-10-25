@@ -50,7 +50,7 @@ pub enum TypedNode<'filepath> {
         else_expr: TypedNodeID<'filepath>,
     },
     While {
-        while_location: SourceLocation<'filepath>,
+        location: SourceLocation<'filepath>,
         /// this is always unit
         type_: TypeID,
         condition: TypedNodeID<'filepath>,
@@ -80,4 +80,32 @@ pub enum TypedPattern<'filepath> {
         type_: TypeID,
         // TODO: name ids
     },
+}
+
+impl<'filepath> TypedNode<'filepath> {
+    pub fn get_location(&self) -> SourceLocation<'filepath> {
+        match *self {
+            TypedNode::Integer { location, .. }
+            | TypedNode::Procedure { location, .. }
+            | TypedNode::Call { location, .. }
+            | TypedNode::Assignment { location, .. }
+            | TypedNode::Block { location, .. }
+            | TypedNode::If { location, .. }
+            | TypedNode::While { location, .. }
+            | TypedNode::Unit { location, .. } => location,
+        }
+    }
+
+    pub fn get_type(&self) -> TypeID {
+        match *self {
+            TypedNode::Integer { type_, .. }
+            | TypedNode::Procedure { type_, .. }
+            | TypedNode::Call { type_, .. }
+            | TypedNode::Assignment { type_, .. }
+            | TypedNode::Block { type_, .. }
+            | TypedNode::If { type_, .. }
+            | TypedNode::While { type_, .. }
+            | TypedNode::Unit { type_, .. } => type_,
+        }
+    }
 }
