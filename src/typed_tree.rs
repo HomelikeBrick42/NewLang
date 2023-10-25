@@ -5,7 +5,7 @@ use crate::{
 };
 
 pub type TypedNodeID<'filepath> = NodeID<TypedNode<'filepath>>;
-pub type TypeNodes<'filepath> = Nodes<TypedNode<'filepath>>;
+pub type TypedNodes<'filepath> = Nodes<TypedNode<'filepath>>;
 
 pub type NameID<'filepath> = NodeID<Name<'filepath>>;
 pub type Names<'filepath> = Nodes<Name<'filepath>>;
