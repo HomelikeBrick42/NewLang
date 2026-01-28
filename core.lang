@@ -1,0 +1,17 @@
+#[builtin]
+type Runtime
+
+#[builtin]
+type I64
+
+#[builtin]
+struct Unit {}
+
+#[builtin]
+enum Bool {
+    false: Unit,
+    true: Unit,
+}
+
+#[builtin]
+fn print_i64(value: I64, runtime: Runtime)
