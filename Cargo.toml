@@ -6,5 +6,6 @@ edition = "2024"
 [dependencies]
 derive_more = { version = "2.1.1", features = ["full"] }
 lasso = { version = "0.7.3", features = ["multi-threaded"] }
+nonmax = "0.5.5"
 rustc-hash = "2.1.1"
 thiserror = "2.0.18"

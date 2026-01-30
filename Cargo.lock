@@ -100,6 +100,7 @@ version = "0.1.0"
 dependencies = [
  "derive_more",
  "lasso",
+ "nonmax",
  "rustc-hash",
  "thiserror",
 ]
@@ -128,6 +129,12 @@ checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
 dependencies = [
  "scopeguard",
 ]
+
+[[package]]
+name = "nonmax"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "610a5acd306ec67f907abe5567859a3c693fb9886eb1f012ab8f2a47bef3db51"
 
 [[package]]
 name = "once_cell"

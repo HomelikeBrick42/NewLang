@@ -592,7 +592,7 @@ fn parse_primary_expression(
                 let colon_colon_token = expect_token!(lexer, TokenKind::ColonColon)?;
                 let name_token = expect_token!(lexer, TokenKind::Name(_))?;
                 Expression {
-                    location: colon_colon_token.location,
+                    location: name_token.location,
                     kind: ExpressionKind::PathAccess {
                         operand: Box::new(expression),
                         colon_colon_token,

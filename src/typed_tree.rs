@@ -1,55 +1,78 @@
-use crate::{interning::InternedStr, lexing::SourceLocation};
+use crate::{
+    idvec::{IdVec, new_id_type},
+    interning::InternedStr,
+    lexing::SourceLocation,
+};
+
+new_id_type!(pub struct FunctionId);
 
 #[derive(Debug)]
-pub struct Item {
+pub struct FunctionSignature {
+    pub name: Option<InternedStr>,
+    pub parameters: Box<[FunctionParameter]>,
+    pub return_type: TypeId,
+    pub typ: TypeId,
+}
+
+#[derive(Debug)]
+pub struct FunctionParameter {
     pub location: SourceLocation,
-    pub builtin: bool,
-    pub kind: ItemKind,
+    pub kind: FunctionParameterKind,
 }
 
 #[derive(Debug)]
-pub enum ItemKind {
-    Module {
-        name: InternedStr,
-        items: Box<[Item]>,
-    },
-    Fn {
-        name: InternedStr,
-        parameters: Box<[Parameter]>,
-        return_type: Box<Type>,
-        body: Option<Box<Expression>>,
-    },
-    Struct {
-        name: InternedStr,
-        members: Box<[Member]>,
-    },
-    Enum {
-        name: InternedStr,
-        members: Box<[Member]>,
-    },
-    Type {
-        name: InternedStr,
-        typ: Option<Box<Type>>,
+pub enum FunctionParameterKind {
+    Value { name: InternedStr, typ: TypeId },
+    Type { name: InternedStr, typ: TypeId },
+}
+
+#[derive(Debug)]
+pub enum FunctionBody {
+    Builtin(BuiltinFunctionBody),
+    Expression {
+        variables: IdVec<VariableId, Variable>,
+        expression: Box<Expression>,
     },
 }
 
 #[derive(Debug)]
-pub struct Parameter {
+pub enum BuiltinFunctionBody {
+    PrintI64,
+}
+
+new_id_type!(pub struct VariableId);
+
+#[derive(Debug)]
+pub struct Variable {
+    pub name: Option<InternedStr>,
+    pub typ: TypeId,
+}
+
+new_id_type!(pub struct TypeId);
+
+#[derive(Debug)]
+pub struct Type {
     pub location: SourceLocation,
-    pub kind: ParameterKind,
+    pub name: Option<InternedStr>,
+    pub kind: TypeKind,
 }
 
 #[derive(Debug)]
-pub enum ParameterKind {
-    Value { name: InternedStr, typ: Type },
-    Type { name: InternedStr },
-    Lifetime { name: InternedStr },
+pub enum TypeKind {
+    Resolving,
+    Infer,
+    Runtime,
+    I64,
+    FunctionItem(FunctionId),
+    Struct { members: Box<[Member]> },
+    Enum { members: Box<[Member]> },
+    Generic,
 }
 
 #[derive(Debug)]
 pub struct Member {
     pub name: InternedStr,
-    pub typ: Type,
+    pub typ: TypeId,
 }
 
 #[derive(Debug)]
@@ -60,7 +83,6 @@ pub struct Statement {
 
 #[derive(Debug)]
 pub enum StatementKind {
-    Item(Box<Item>),
     Expression(Box<Expression>),
     Assignment {
         pattern: Box<Pattern>,
@@ -71,19 +93,20 @@ pub enum StatementKind {
 #[derive(Debug)]
 pub struct Expression {
     pub location: SourceLocation,
+    pub typ: TypeId,
     pub kind: ExpressionKind,
 }
 
 #[derive(Debug)]
 pub enum ExpressionKind {
-    Path(Box<Path>),
+    Variable(VariableId),
+    Function(FunctionId),
     Integer(u128),
     Block {
         statements: Box<[Statement]>,
         last_expression: Box<Expression>,
     },
     Constructor {
-        typ: Box<Type>,
         members: Box<[ConstructorMember]>,
     },
     Unary {
@@ -133,61 +156,28 @@ pub struct Argument {
 
 #[derive(Debug)]
 pub enum ArgumentKind {
-    ValueOrType(Expression),
-    Lifetime { name: InternedStr },
+    Value(Expression),
+    Type(TypeId),
 }
 
 #[derive(Debug)]
 pub struct Pattern {
     pub location: SourceLocation,
+    pub typ: TypeId,
     pub kind: PatternKind,
 }
 
 #[derive(Debug)]
 pub enum PatternKind {
-    Path(Box<Path>),
+    Variable(VariableId),
+    Function(FunctionId),
     Integer(u128),
-    Destructor {
-        typ: Box<Type>,
-        members: Box<[DestructorMember]>,
-    },
-    Let {
-        name: InternedStr,
-        typ: Option<Box<Type>>,
-    },
+    Destructor { members: Box<[DestructorMember]> },
+    Let(VariableId),
 }
 
 #[derive(Debug)]
 pub struct DestructorMember {
     pub name: InternedStr,
     pub pattern: Pattern,
-}
-
-#[derive(Debug)]
-pub struct Type {
-    pub location: SourceLocation,
-    pub kind: TypeKind,
-}
-
-#[derive(Debug)]
-pub enum TypeKind {
-    Path(Box<Path>),
-    Unit,
-}
-
-#[derive(Debug)]
-pub struct Path {
-    pub location: SourceLocation,
-    pub kind: PathKind,
-}
-
-#[derive(Debug)]
-pub enum PathKind {
-    Name {
-        name: InternedStr,
-    },
-    PathAccess {
-        operand: Box<Path>,
-        name: InternedStr,
-    },
 }

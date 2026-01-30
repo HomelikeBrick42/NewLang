@@ -1,12 +1,17 @@
-use crate::{interning::InternedStr, parsing::parse_file, validating::validate_items};
+use crate::{
+    interning::InternedStr, parsing::parse_file, typing::type_items, validating::validate_items,
+};
 
 pub const FILE_EXTENSION: &str = "lang";
 
 pub mod ast;
+pub mod idvec;
 pub mod interning;
 pub mod lexing;
 pub mod parsing;
 pub mod syntax_tree;
+pub mod typed_tree;
+pub mod typing;
 pub mod validating;
 
 fn main() {
@@ -41,5 +46,14 @@ fn main() {
     };
     drop(syntax_tree_items);
 
-    dbg!(ast_items);
+    let result = match type_items(filepath, &ast_items) {
+        Ok(result) => result,
+        Err(error) => {
+            eprintln!("{error}");
+            return;
+        }
+    };
+    drop(ast_items);
+
+    println!("{result:#?}");
 }

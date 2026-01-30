@@ -105,41 +105,55 @@ pub fn validate_item(
                                 name_token,
                                 colon_token: _,
                                 typ,
-                            } => ast::Parameter::Value {
-                                name: {
-                                    let TokenKind::Name(name) = name_token.kind else {
-                                        unreachable!()
-                                    };
-                                    name
-                                },
-                                typ: validate_type(typ)?,
-                            },
-                            st::Parameter::Type { name_token } => ast::Parameter::Type {
-                                name: {
-                                    let TokenKind::Name(name) = name_token.kind else {
-                                        unreachable!()
-                                    };
-                                    name
+                            } => ast::Parameter {
+                                location: name_token.location,
+                                kind: ast::ParameterKind::Value {
+                                    name: {
+                                        let TokenKind::Name(name) = name_token.kind else {
+                                            unreachable!()
+                                        };
+                                        name
+                                    },
+                                    typ: validate_type(typ)?,
                                 },
                             },
-                            st::Parameter::Lifetime { lifetime_token } => {
-                                ast::Parameter::Lifetime {
+
+                            st::Parameter::Type { name_token } => ast::Parameter {
+                                location: name_token.location,
+                                kind: ast::ParameterKind::Type {
+                                    name: {
+                                        let TokenKind::Name(name) = name_token.kind else {
+                                            unreachable!()
+                                        };
+                                        name
+                                    },
+                                },
+                            },
+
+                            st::Parameter::Lifetime { lifetime_token } => ast::Parameter {
+                                location: lifetime_token.location,
+                                kind: ast::ParameterKind::Lifetime {
                                     name: {
                                         let TokenKind::Lifetime(name) = lifetime_token.kind else {
                                             unreachable!()
                                         };
                                         name
                                     },
-                                }
-                            }
+                                },
+                            },
                         })
                     })
                     .collect::<Result<_, ValidatingError>>()?,
-                return_type: return_type
-                    .as_ref()
-                    .map(|return_type| validate_type(&return_type.typ))
-                    .transpose()?
-                    .map(Box::new),
+                return_type: Box::new(
+                    return_type
+                        .as_ref()
+                        .map(|return_type| validate_type(&return_type.typ))
+                        .transpose()?
+                        .unwrap_or(ast::Type {
+                            location: parameters.close_parenthesis_token.location,
+                            kind: ast::TypeKind::Unit,
+                        }),
+                ),
                 body: body
                     .as_ref()
                     .map(|body| validate_expression(body))
@@ -377,15 +391,21 @@ pub fn validate_expression(
                     .iter()
                     .map(|argument| {
                         Ok(match argument {
-                            st::Argument::ValueOrType(expression) => {
-                                ast::Argument::ValueOrType(validate_expression(expression)?)
-                            }
-                            st::Argument::Lifetime { lifetime_token } => ast::Argument::Lifetime {
-                                name: {
-                                    let TokenKind::Lifetime(name) = lifetime_token.kind else {
-                                        unreachable!()
-                                    };
-                                    name
+                            st::Argument::ValueOrType(expression) => ast::Argument {
+                                location: expression.location,
+                                kind: ast::ArgumentKind::ValueOrType(validate_expression(
+                                    expression,
+                                )?),
+                            },
+                            st::Argument::Lifetime { lifetime_token } => ast::Argument {
+                                location: lifetime_token.location,
+                                kind: ast::ArgumentKind::Lifetime {
+                                    name: {
+                                        let TokenKind::Lifetime(name) = lifetime_token.kind else {
+                                            unreachable!()
+                                        };
+                                        name
+                                    },
                                 },
                             },
                         })
@@ -431,7 +451,7 @@ fn unit_expression(location: SourceLocation) -> ast::Expression {
 }
 
 pub fn validate_pattern(
-    path @ &st::Expression { location, ref kind }: &st::Expression,
+    pattern @ &st::Expression { location, ref kind }: &st::Expression,
 ) -> Result<ast::Pattern, ValidatingError> {
     Ok(ast::Pattern {
         location,
@@ -443,7 +463,7 @@ pub fn validate_pattern(
             } => return validate_pattern(expression),
 
             st::ExpressionKind::Name { .. } | st::ExpressionKind::PathAccess { .. } => {
-                ast::PatternKind::Path(Box::new(validate_path(path)?))
+                ast::PatternKind::Path(Box::new(validate_path(pattern)?))
             }
 
             st::ExpressionKind::Integer { integer_token } => {
