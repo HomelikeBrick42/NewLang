@@ -107,6 +107,7 @@ pub enum ExpressionKind {
 
 #[derive(Debug)]
 pub struct ConstructorMember {
+    pub location: SourceLocation,
     pub name: InternedStr,
     pub value: Expression,
 }
@@ -159,6 +160,7 @@ pub enum PatternKind {
 
 #[derive(Debug)]
 pub struct DestructorMember {
+    pub location: SourceLocation,
     pub name: InternedStr,
     pub pattern: Pattern,
 }

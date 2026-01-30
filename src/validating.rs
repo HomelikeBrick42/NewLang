@@ -339,6 +339,7 @@ pub fn validate_expression(
                              value,
                          }| {
                             Ok(ast::ConstructorMember {
+                                location: name_token.location,
                                 name: {
                                     let TokenKind::Name(name) = name_token.kind else {
                                         unreachable!()
@@ -489,6 +490,7 @@ pub fn validate_pattern(
                              value,
                          }| {
                             Ok(ast::DestructorMember {
+                                location: name_token.location,
                                 name: {
                                     let TokenKind::Name(name) = name_token.kind else {
                                         unreachable!()

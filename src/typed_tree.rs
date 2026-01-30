@@ -60,13 +60,16 @@ pub struct Type {
 #[derive(Debug)]
 pub enum TypeKind {
     Resolving,
-    Infer,
+
     Runtime,
     I64,
     FunctionItem(FunctionId),
     Struct { members: Box<[Member]> },
     Enum { members: Box<[Member]> },
     Generic,
+
+    Infer,
+    Inferred(TypeId),
 }
 
 #[derive(Debug)]
@@ -130,6 +133,7 @@ pub enum ExpressionKind {
 
 #[derive(Debug)]
 pub struct ConstructorMember {
+    pub location: SourceLocation,
     pub name: InternedStr,
     pub value: Expression,
 }
@@ -178,6 +182,7 @@ pub enum PatternKind {
 
 #[derive(Debug)]
 pub struct DestructorMember {
+    pub location: SourceLocation,
     pub name: InternedStr,
     pub pattern: Pattern,
 }

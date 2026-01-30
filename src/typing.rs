@@ -759,12 +759,19 @@ fn type_expression<'ast>(
             kind: tt::ExpressionKind::Constructor {
                 members: members
                     .iter()
-                    .map(|&ast::ConstructorMember { name, ref value }| {
-                        Ok(tt::ConstructorMember {
-                            name,
-                            value: type_expression(value, result, variables, names, module)?,
-                        })
-                    })
+                    .map(
+                        |&ast::ConstructorMember {
+                             location,
+                             name,
+                             ref value,
+                         }| {
+                            Ok(tt::ConstructorMember {
+                                location,
+                                name,
+                                value: type_expression(value, result, variables, names, module)?,
+                            })
+                        },
+                    )
                     .collect::<Result<_, TypingError>>()?,
             },
         },
@@ -998,12 +1005,19 @@ fn type_pattern<'ast>(
             kind: tt::PatternKind::Destructor {
                 members: members
                     .iter()
-                    .map(|&ast::DestructorMember { name, ref pattern }| {
-                        Ok(tt::DestructorMember {
-                            name,
-                            pattern: type_pattern(pattern, result, variables, names)?,
-                        })
-                    })
+                    .map(
+                        |&ast::DestructorMember {
+                             location,
+                             name,
+                             ref pattern,
+                         }| {
+                            Ok(tt::DestructorMember {
+                                location,
+                                name,
+                                pattern: type_pattern(pattern, result, variables, names)?,
+                            })
+                        },
+                    )
                     .collect::<Result<_, TypingError>>()?,
             },
         },
