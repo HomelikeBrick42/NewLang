@@ -210,7 +210,7 @@ fn main() {
         for (_, typ) in result.types.iter() {
             if let TypeKind::Infer = typ.kind {
                 was_error = true;
-                eprintln!("Unable to infer type at {}", typ.location);
+                eprintln!("{}: Unable to infer type", typ.location);
             }
         }
         if was_error {
