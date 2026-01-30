@@ -135,7 +135,7 @@ pub fn type_items(
     };
 
     {
-        let forced_core_names = ["I64".into(), "Unit".into()];
+        let forced_core_names = ["Unit".into()];
 
         let BindingKind::Module {
             parent: _,
@@ -701,9 +701,11 @@ fn type_expression<'ast>(
 
         ast::ExpressionKind::Integer(value) => tt::Expression {
             location,
-            typ: result
-                .i64_type
-                .expect("the builtin i64 type should have already been declared"),
+            typ: result.types.push(tt::Type {
+                location,
+                name: None,
+                kind: tt::TypeKind::Infer,
+            }),
             kind: tt::ExpressionKind::Integer(value),
         },
 
@@ -990,9 +992,11 @@ fn type_pattern<'ast>(
 
         ast::PatternKind::Integer(value) => tt::Pattern {
             location,
-            typ: result
-                .i64_type
-                .expect("the builtin i64 type should have already been declared"),
+            typ: result.types.push(tt::Type {
+                location,
+                name: None,
+                kind: tt::TypeKind::Infer,
+            }),
             kind: tt::PatternKind::Integer(value),
         },
 
