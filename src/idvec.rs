@@ -1,6 +1,8 @@
 use nonmax::NonMaxUsize;
+use rustc_hash::FxHashMap;
 use std::{
     fmt::Debug,
+    hash::Hash,
     iter::FusedIterator,
     marker::PhantomData,
     ops::{Deref, DerefMut, Index, IndexMut},
@@ -175,6 +177,84 @@ impl<I: Id, T> IndexMut<I> for IdSlice<I, T> {
 }
 
 impl<I: Id + Debug, T: Debug> Debug for IdSlice<I, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_map().entries(self.iter()).finish()
+    }
+}
+
+pub struct IdMap<I: Id, T> {
+    map: FxHashMap<I, T>,
+}
+
+impl<I: Id, T> IdMap<I, T> {
+    pub fn new() -> Self {
+        Self {
+            map: FxHashMap::default(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = (I, &T)> + FusedIterator {
+        self.map.iter().map(|(&id, value)| (id, value))
+    }
+
+    pub fn iter_mut(&mut self) -> impl ExactSizeIterator<Item = (I, &mut T)> + FusedIterator {
+        self.map.iter_mut().map(|(&id, value)| (id, value))
+    }
+}
+
+impl<I: Id + Eq + Hash, T> IdMap<I, T> {
+    pub fn insert(&mut self, id: I, value: T) -> Option<T> {
+        self.map.insert(id, value)
+    }
+
+    pub fn get(&self, id: I) -> Option<&T> {
+        self.map.get(&id)
+    }
+
+    pub fn get_mut(&mut self, id: I) -> Option<&mut T> {
+        self.map.get_mut(&id)
+    }
+
+    pub fn get_disjoint_mut<const N: usize>(&mut self, ids: [I; N]) -> Option<[&mut T; N]> {
+        let results = self.map.get_disjoint_mut(ids.each_ref());
+        for result in &results {
+            if result.is_none() {
+                return None;
+            }
+        }
+        Some(results.map(|result| result.unwrap()))
+    }
+}
+
+impl<I: Id, T> Default for IdMap<I, T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<I: Id + Eq + Hash, T> Index<I> for IdMap<I, T> {
+    type Output = T;
+
+    fn index(&self, id: I) -> &Self::Output {
+        self.get(id).unwrap()
+    }
+}
+
+impl<I: Id + Eq + Hash, T> IndexMut<I> for IdMap<I, T> {
+    fn index_mut(&mut self, id: I) -> &mut Self::Output {
+        self.get_mut(id).unwrap()
+    }
+}
+
+impl<I: Id + Debug, T: Debug> Debug for IdMap<I, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_map().entries(self.iter()).finish()
     }

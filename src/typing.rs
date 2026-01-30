@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     ast,
-    idvec::{Id, IdVec, new_id_type},
+    idvec::{Id, IdMap, IdVec, new_id_type},
     interning::InternedStr,
     lexing::SourceLocation,
     typed_tree as tt,
@@ -92,7 +92,7 @@ pub struct TypingResult<'ast> {
     pub bool_type: Option<tt::TypeId>,
 
     pub function_signatures: IdVec<tt::FunctionId, tt::FunctionSignature>,
-    pub function_bodies: FxHashMap<tt::FunctionId, tt::FunctionBody>,
+    pub function_bodies: IdMap<tt::FunctionId, tt::FunctionBody>,
     function_bodies_to_check: VecDeque<FunctionBodyToCheck<'ast>>,
 }
 
@@ -124,7 +124,7 @@ pub fn type_items(
             bool_type: None,
 
             function_signatures: IdVec::new(),
-            function_bodies: FxHashMap::default(),
+            function_bodies: IdMap::new(),
             function_bodies_to_check: VecDeque::new(),
         }
     };
