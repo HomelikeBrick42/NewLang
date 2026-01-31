@@ -124,6 +124,7 @@ pub fn type_check_functions(
 
             FunctionBody::Expression {
                 variables: _,
+                parameter_variables: _,
                 ref expression,
             } => {
                 type_check_expression(

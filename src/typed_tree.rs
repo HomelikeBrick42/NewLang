@@ -31,6 +31,7 @@ pub enum FunctionBody {
     Builtin(BuiltinFunctionBody),
     Expression {
         variables: IdVec<VariableId, Variable>,
+        parameter_variables: Box<[Option<VariableId>]>,
         expression: Box<Expression>,
     },
 }
@@ -50,14 +51,14 @@ pub struct Variable {
 
 new_id_type!(pub struct TypeId);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Type {
     pub location: SourceLocation,
     pub name: Option<InternedStr>,
     pub kind: TypeKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TypeKind {
     Resolving,
 
@@ -72,7 +73,7 @@ pub enum TypeKind {
     Inferred(TypeId),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Member {
     pub name: InternedStr,
     pub typ: TypeId,

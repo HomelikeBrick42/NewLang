@@ -206,13 +206,17 @@ pub fn type_items(
                 .collect::<FxHashMap<InternedStr, Name>>();
 
             let mut variables = IdVec::new();
-            for &tt::FunctionParameter { location, ref kind } in &function.parameters {
+            let mut parameter_variables = vec![None; function.parameters.len()];
+            for (i, &tt::FunctionParameter { location, ref kind }) in
+                function.parameters.iter().enumerate()
+            {
                 match *kind {
                     tt::FunctionParameterKind::Value { name, typ } => {
                         let variable = variables.push(tt::Variable {
                             name: Some(name),
                             typ,
                         });
+                        parameter_variables[i] = Some(variable);
                         names.insert(name, Name::Variable(variable));
                     }
 
@@ -237,6 +241,7 @@ pub fn type_items(
                 id,
                 tt::FunctionBody::Expression {
                     variables,
+                    parameter_variables: parameter_variables.into_boxed_slice(),
                     expression,
                 },
             );

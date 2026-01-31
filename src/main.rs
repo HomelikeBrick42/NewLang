@@ -4,9 +4,10 @@ use crate::{
     idvec::IdSlice,
     interning::InternedStr,
     parsing::parse_file,
+    treewalk_interpreter::execute_program,
     type_checking::{TypeCheckingError, TypeCheckingErrorKind, type_check_functions},
     typed_tree::{Type, TypeId, TypeKind},
-    typing::type_items,
+    typing::{BindingKind, type_items},
     validating::validate_items,
 };
 
@@ -18,6 +19,7 @@ pub mod interning;
 pub mod lexing;
 pub mod parsing;
 pub mod syntax_tree;
+pub mod treewalk_interpreter;
 pub mod type_checking;
 pub mod typed_tree;
 pub mod typing;
@@ -207,10 +209,15 @@ fn main() {
 
     {
         let mut was_error = false;
-        for (_, typ) in result.types.iter() {
-            if let TypeKind::Infer = typ.kind {
+        for id in result.types.iter().map(|(id, _)| id).collect::<Vec<_>>() {
+            // TODO: fix the tree properly instead of this hack lmao
+            while let TypeKind::Inferred(new_id) = result.types[id].kind {
+                result.types[id] = result.types[new_id].clone();
+            }
+
+            if let TypeKind::Infer = result.types[id].kind {
                 was_error = true;
-                eprintln!("{}: Unable to infer type", typ.location);
+                eprintln!("{}: Unable to infer type", result.types[id].location);
             }
         }
         if was_error {
@@ -218,7 +225,25 @@ fn main() {
         }
     }
 
-    println!("{result:#?}");
+    let BindingKind::Module {
+        parent: _,
+        name: _,
+        names: ref global_module,
+    } = result.bindings[result.global_module].kind
+    else {
+        unreachable!();
+    };
+    let BindingKind::Function(main_function) = result.bindings[global_module[&"main".into()]].kind
+    else {
+        println!("Unable to find main function");
+        return;
+    };
+    execute_program(
+        main_function,
+        &result.function_signatures,
+        &result.function_bodies,
+        &result.types,
+    );
 }
 
 struct PrettyPrintType<'a> {
