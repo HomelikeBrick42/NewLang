@@ -214,18 +214,20 @@ impl Display for PrettyPrintError<'_> {
                     InferTypeKind::StructLike { ref members } => {
                         write!(f, "_ {{")?;
                         for (i, (&name, &typ)) in members.iter().enumerate() {
-                            write!(f, " ")?;
-                            if i + 1 != members.len() {
+                            if i > 0 {
                                 write!(f, ",")?;
                             }
                             write!(
                                 f,
-                                "{name}: {}",
+                                " {name}: {}",
                                 PrettyPrintError {
                                     typ,
                                     types: self.types
                                 }
                             )?;
+                        }
+                        if !members.is_empty() {
+                            write!(f, " ")?;
                         }
                         write!(f, "}}")
                     }
@@ -241,43 +243,11 @@ impl Display for PrettyPrintError<'_> {
                 TypeKind::FunctionItem(_) => {
                     write!(f, "{{function item for '{}'}}", typ.name.unwrap())
                 }
-                TypeKind::Struct { ref members } => {
-                    write!(f, "{} {{", typ.name.unwrap())?;
-                    for (i, member) in members.iter().enumerate() {
-                        write!(f, " ")?;
-                        if i + 1 != members.len() {
-                            write!(f, ",")?;
-                        }
-                        write!(
-                            f,
-                            "{}: {}",
-                            member.name,
-                            PrettyPrintError {
-                                typ: member.typ,
-                                types: self.types
-                            }
-                        )?;
-                    }
-                    write!(f, "}}")
+                TypeKind::Struct { members: _ } => {
+                    write!(f, "{}", typ.name.unwrap())
                 }
-                TypeKind::Enum { ref members } => {
-                    write!(f, "{} {{", typ.name.unwrap())?;
-                    for (i, member) in members.iter().enumerate() {
-                        write!(f, " ")?;
-                        if i + 1 != members.len() {
-                            write!(f, ",")?;
-                        }
-                        write!(
-                            f,
-                            "{}: {}",
-                            member.name,
-                            PrettyPrintError {
-                                typ: member.typ,
-                                types: self.types
-                            }
-                        )?;
-                    }
-                    write!(f, "}}")
+                TypeKind::Enum { members: _ } => {
+                    write!(f, "{}", typ.name.unwrap())
                 }
                 TypeKind::Generic => write!(f, "{}", typ.name.unwrap()),
             };

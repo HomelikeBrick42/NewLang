@@ -63,13 +63,17 @@ fn main() -> ExitCode {
         },
         &ast_items,
     );
+    if !resolved_program.errors.is_empty() {
+        print_resolving_errors(&resolved_program);
+        return ExitCode::FAILURE;
+    }
+
     let inferring_errors = infer_program(
         &mut resolved_program.types,
         &resolved_program.function_signatures,
         &resolved_program.function_bodies,
     );
-    if !resolved_program.errors.is_empty() || !inferring_errors.is_empty() {
-        print_resolving_errors(&resolved_program);
+    if !inferring_errors.is_empty() {
         print_inferring_errors(&inferring_errors, &resolved_program.types);
         return ExitCode::FAILURE;
     }
