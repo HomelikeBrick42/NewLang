@@ -14,13 +14,14 @@ pub struct FunctionSignature {
     pub parameters: Box<[FunctionParameter]>,
     pub return_type: TypeId,
     pub typ: TypeId,
+    pub variables: IdVec<VariableId, Variable>,
+    pub parameter_variables: Box<[Option<VariableId>]>,
 }
 
 #[derive(Debug)]
 pub struct FunctionParameter {
     pub location: SourceLocation,
-    pub name: InternedStr,
-    pub typ: TypeId,
+    pub kind: FunctionParameterKind,
 }
 
 #[derive(Debug)]
@@ -31,11 +32,7 @@ pub enum FunctionParameterKind {
 #[derive(Debug)]
 pub enum FunctionBody {
     Builtin(BuiltinFunctionBody),
-    Expression {
-        variables: IdVec<VariableId, Variable>,
-        parameter_variables: Box<[Option<VariableId>]>,
-        expression: Box<Expression>,
-    },
+    Expression(Box<Expression>),
 }
 
 #[derive(Debug)]
@@ -68,7 +65,7 @@ pub enum TypeKind {
     Inferred(TypeId),
 
     Runtime,
-    Integer(InferTypeKind),
+    Integer(IntegerTypeKind),
     FunctionItem(FunctionId),
     Struct { members: Box<[TypeMember]> },
     Enum { members: Box<[TypeMember]> },
@@ -91,6 +88,7 @@ pub enum IntegerTypeKind {
 
 #[derive(Debug, Clone)]
 pub struct TypeMember {
+    pub location: SourceLocation,
     pub name: InternedStr,
     pub typ: TypeId,
 }

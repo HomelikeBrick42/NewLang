@@ -182,6 +182,7 @@ pub fn validate_item(
                              typ,
                          }| {
                             Ok(ast::Member {
+                                location: name_token.location,
                                 name: {
                                     let TokenKind::Name(name) = name_token.kind else {
                                         unreachable!()
@@ -216,6 +217,7 @@ pub fn validate_item(
                              typ,
                          }| {
                             Ok(ast::Member {
+                                location: name_token.location,
                                 name: {
                                     let TokenKind::Name(name) = name_token.kind else {
                                         unreachable!()

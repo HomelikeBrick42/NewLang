@@ -48,6 +48,7 @@ pub enum ParameterKind {
 
 #[derive(Debug)]
 pub struct Member {
+    pub location: SourceLocation,
     pub name: InternedStr,
     pub typ: Type,
 }
