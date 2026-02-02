@@ -504,6 +504,20 @@ pub fn validate_pattern(
                     .collect::<Result<_, ValidatingError>>()?,
             },
 
+            st::ExpressionKind::MemberAccess {
+                operand,
+                dot_token: _,
+                name_token,
+            } => ast::PatternKind::MemberAccess {
+                operand: Box::new(validate_expression(operand)?),
+                name: {
+                    let TokenKind::Name(name) = name_token.kind else {
+                        unreachable!()
+                    };
+                    name
+                },
+            },
+
             st::ExpressionKind::Let {
                 let_token: _,
                 name_token,
@@ -525,8 +539,7 @@ pub fn validate_pattern(
             st::ExpressionKind::Block { .. }
             | st::ExpressionKind::UnaryOperator { .. }
             | st::ExpressionKind::BinaryOperator { .. }
-            | st::ExpressionKind::Call { .. }
-            | st::ExpressionKind::MemberAccess { .. } => {
+            | st::ExpressionKind::Call { .. } => {
                 return Err(ValidatingError {
                     location,
                     kind: ValidatingErrorKind::ExpectedPattern,

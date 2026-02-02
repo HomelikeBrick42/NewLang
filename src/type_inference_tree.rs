@@ -1,8 +1,10 @@
 use crate::{
+    ast::{BinaryOperator, UnaryOperator},
     idvec::{IdVec, new_id_type},
     interning::InternedStr,
     lexing::SourceLocation,
 };
+use rustc_hash::FxHashMap;
 
 new_id_type!(pub struct FunctionId);
 
@@ -17,13 +19,13 @@ pub struct FunctionSignature {
 #[derive(Debug)]
 pub struct FunctionParameter {
     pub location: SourceLocation,
-    pub kind: FunctionParameterKind,
+    pub name: InternedStr,
+    pub typ: TypeId,
 }
 
 #[derive(Debug)]
 pub enum FunctionParameterKind {
     Value { name: InternedStr, typ: TypeId },
-    Type { name: InternedStr, typ: TypeId },
 }
 
 #[derive(Debug)]
@@ -51,30 +53,44 @@ pub struct Variable {
 
 new_id_type!(pub struct TypeId);
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Type {
     pub location: SourceLocation,
     pub name: Option<InternedStr>,
     pub kind: TypeKind,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum TypeKind {
     Resolving,
 
-    Runtime,
-    I64,
-    FunctionItem(FunctionId),
-    Struct { members: Box<[Member]> },
-    Enum { members: Box<[Member]> },
-    Generic,
-
-    Infer,
+    Infer(InferTypeKind),
     Inferred(TypeId),
+
+    Runtime,
+    Integer(InferTypeKind),
+    FunctionItem(FunctionId),
+    Struct { members: Box<[TypeMember]> },
+    Enum { members: Box<[TypeMember]> },
+    Generic,
+}
+
+#[derive(Debug)]
+pub enum InferTypeKind {
+    Anything,
+    Number,
+    StructLike {
+        members: FxHashMap<InternedStr, TypeId>,
+    },
+}
+
+#[derive(Debug)]
+pub enum IntegerTypeKind {
+    I64,
 }
 
 #[derive(Debug, Clone)]
-pub struct Member {
+pub struct TypeMember {
     pub name: InternedStr,
     pub typ: TypeId,
 }
@@ -140,20 +156,6 @@ pub struct ConstructorMember {
 }
 
 #[derive(Debug)]
-pub enum UnaryOperator {
-    Plus,
-    Negate,
-}
-
-#[derive(Debug)]
-pub enum BinaryOperator {
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-}
-
-#[derive(Debug)]
 pub struct Argument {
     pub location: SourceLocation,
     pub kind: ArgumentKind,
@@ -161,8 +163,7 @@ pub struct Argument {
 
 #[derive(Debug)]
 pub enum ArgumentKind {
-    Value(Expression),
-    Type(TypeId),
+    Value(Box<Expression>),
 }
 
 #[derive(Debug)]

@@ -1,4 +1,6 @@
-use crate::{interning::InternedStr, parsing::parse_file, validating::validate_items};
+use std::num::NonZeroUsize;
+
+use crate::{interning::InternedStr, lexing::SourceLocation, parsing::parse_file, resolving::resolve_program, validating::validate_items};
 
 pub const FILE_EXTENSION: &str = "lang";
 
@@ -7,8 +9,9 @@ pub mod idvec;
 pub mod interning;
 pub mod lexing;
 pub mod parsing;
+pub mod resolving;
 pub mod syntax_tree;
-pub mod typed_tree;
+pub mod type_inference_tree;
 pub mod validating;
 
 fn main() {
@@ -43,5 +46,13 @@ fn main() {
     };
     drop(syntax_tree_items);
 
-    println!("{ast_items:#?}");
+    let result = match resolve_program(SourceLocation {filepath,position:0,line:NonZeroUsize::MIN,column:NonZeroUsize::MIN}, &ast_items) {
+        Ok(result) => result,
+        Err(error) => {
+            eprintln!("{error}");
+            return;
+        }
+    };
+
+    println!("{result:#?}");
 }

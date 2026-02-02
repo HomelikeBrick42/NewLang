@@ -112,13 +112,13 @@ pub struct ConstructorMember {
     pub value: Expression,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum UnaryOperator {
     Plus,
     Negate,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum BinaryOperator {
     Add,
     Subtract,
@@ -151,6 +151,10 @@ pub enum PatternKind {
     Destructor {
         typ: Box<Type>,
         members: Box<[DestructorMember]>,
+    },
+    MemberAccess {
+        operand: Box<Expression>,
+        name: InternedStr,
     },
     Let {
         name: InternedStr,
