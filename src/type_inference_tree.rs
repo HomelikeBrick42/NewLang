@@ -180,9 +180,18 @@ pub enum TypeKind {
 pub enum InferTypeKind {
     Anything,
     Number,
+    FunctionLike {
+        parameters: Box<[InferFunctionParameter]>,
+        return_type: TypeId,
+    },
     StructLike {
         members: FxHashMap<InternedStr, TypeId>,
     },
+}
+
+#[derive(Debug, Clone)]
+pub enum InferFunctionParameter {
+    Value { typ: TypeId },
 }
 
 #[derive(Debug)]
@@ -210,7 +219,36 @@ impl Display for PrettyPrintError<'_> {
                 TypeKind::Resolving => write!(f, "_"),
                 TypeKind::Infer(ref infer_type_kind) => match *infer_type_kind {
                     InferTypeKind::Anything => write!(f, "_"),
-                    InferTypeKind::Number => write!(f, "{{number}}"),
+                    InferTypeKind::Number => write!(f, "{{{{number}}}}"),
+                    InferTypeKind::FunctionLike {
+                        ref parameters,
+                        return_type,
+                    } => {
+                        write!(f, "_(")?;
+                        for (i, parameter) in parameters.iter().enumerate() {
+                            if i > 0 {
+                                write!(f, ", ")?;
+                            }
+                            match *parameter {
+                                InferFunctionParameter::Value { typ } => write!(
+                                    f,
+                                    " _: {}",
+                                    PrettyPrintError {
+                                        typ,
+                                        types: self.types
+                                    }
+                                )?,
+                            }
+                        }
+                        write!(
+                            f,
+                            ") -> {}",
+                            PrettyPrintError {
+                                typ: return_type,
+                                types: self.types
+                            }
+                        )
+                    }
                     InferTypeKind::StructLike { ref members } => {
                         write!(f, "_ {{")?;
                         for (i, (&name, &typ)) in members.iter().enumerate() {
@@ -241,7 +279,7 @@ impl Display for PrettyPrintError<'_> {
                     IntegerTypeKind::I64 => write!(f, "I64"),
                 },
                 TypeKind::FunctionItem(_) => {
-                    write!(f, "{{function item for '{}'}}", typ.name.unwrap())
+                    write!(f, "{{{{function item for '{}'}}}}", typ.name.unwrap())
                 }
                 TypeKind::Struct { members: _ } => {
                     write!(f, "{}", typ.name.unwrap())
