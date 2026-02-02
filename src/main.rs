@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::{num::NonZeroUsize, process::ExitCode};
 
 use crate::{
     interning::InternedStr, lexing::SourceLocation, parsing::parse_file,
@@ -17,17 +17,17 @@ pub mod syntax_tree;
 pub mod type_inference_tree;
 pub mod validating;
 
-fn main() {
+fn main() -> ExitCode {
     let args = std::env::args().collect::<Vec<_>>();
     if args.len() != 2 {
         eprintln!("Usage: {} <filename>", args[0]);
-        return;
+        return ExitCode::FAILURE;
     }
 
     let filepath: InternedStr = args[1].as_str().into();
     let Ok(source) = std::fs::read_to_string(filepath.as_str()) else {
         eprintln!("Unable to open file '{filepath}'");
-        return;
+        return ExitCode::FAILURE;
     };
     drop(args);
 
@@ -35,7 +35,7 @@ fn main() {
         Ok(items) => items,
         Err(error) => {
             eprintln!("{error}");
-            return;
+            return ExitCode::FAILURE;
         }
     };
     drop(source);
@@ -44,7 +44,7 @@ fn main() {
         Ok(items) => items,
         Err(error) => {
             eprintln!("{error}");
-            return;
+            return ExitCode::FAILURE;
         }
     };
     drop(syntax_tree_items);
@@ -61,9 +61,15 @@ fn main() {
         Ok(result) => result,
         Err(error) => {
             eprintln!("{error:#?}");
-            return;
+            return ExitCode::FAILURE;
         }
     };
 
     println!("{result:#?}");
+
+    if !result.errors.is_empty() {
+        return ExitCode::FAILURE;
+    }
+
+    ExitCode::SUCCESS
 }

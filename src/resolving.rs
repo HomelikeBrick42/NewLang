@@ -32,6 +32,7 @@ new_id_type!(pub struct ModuleItemId);
 pub struct Module {
     pub location: SourceLocation,
     pub parent_module: Option<ModuleId>,
+    pub transparent: bool,
     pub name: Option<InternedStr>,
     pub items: FxHashMap<InternedStr, ModuleItemId>,
 }
@@ -118,6 +119,7 @@ pub fn resolve_program<'ast>(
         items,
         None,
         None,
+        false,
         &mut types,
         &mut function_signatures,
         &mut modules,
@@ -178,6 +180,7 @@ fn create_unresolved_module_items<'ast>(
     items: impl IntoIterator<Item = &'ast ast::Item>,
     parent_module: Option<ModuleId>,
     name: Option<InternedStr>,
+    transparent: bool,
     types: &mut IdVec<ti::TypeId, ti::Type>,
     function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
     modules: &mut IdVec<ModuleId, Module>,
@@ -187,6 +190,7 @@ fn create_unresolved_module_items<'ast>(
     let module = modules.push(Module {
         location,
         parent_module,
+        transparent,
         name,
         items: FxHashMap::default(),
     });
@@ -207,7 +211,7 @@ fn create_unresolved_module_items<'ast>(
         if matches!(item.kind, ast::ItemKind::Module { .. }) {
             // TODO: maybe there is a way around doing this here?
             // this is currently here so that #[builtin] types like
-            // builtin.unit_type is set as long as the core module is declared first
+            // builtins.unit_type is set as long as the core module is declared first
             resolve_module_item(
                 module_item,
                 types,
@@ -255,6 +259,7 @@ fn resolve_module_item<'ast>(
                     items,
                     Some(module),
                     Some(name),
+                    false,
                     types,
                     function_signatures,
                     modules,
@@ -638,6 +643,19 @@ fn resolve_module_name<'ast>(
                 ModuleItemKind::Type(id) => NameKind::Type(id),
             },
         })
+    } else if module.transparent
+        && let Some(parent_module) = module.parent_module
+    {
+        resolve_module_name(
+            location,
+            parent_module,
+            name,
+            types,
+            function_signatures,
+            modules,
+            module_items,
+            builtins,
+        )
     } else {
         Err(ResolvingError {
             location,
