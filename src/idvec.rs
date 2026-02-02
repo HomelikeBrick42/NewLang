@@ -136,12 +136,10 @@ impl<I: Id, T> IdSlice<I, T> {
         self.values.get_mut(id.into_index().get())
     }
 
-    pub fn get_disjoint_mut<const N: usize>(&mut self, ids: [I; N]) -> [Option<&mut T>; N] {
+    pub fn get_disjoint_mut<const N: usize>(&mut self, ids: [I; N]) -> Option<[&mut T; N]> {
         self.values
             .get_disjoint_mut(ids.map(|id| id.into_index().get()))
             .ok()
-            .map(|refs| refs.map(Some))
-            .unwrap_or([const { None }; N])
     }
 
     pub fn iter(

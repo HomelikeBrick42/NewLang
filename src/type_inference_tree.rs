@@ -1,6 +1,8 @@
+use std::fmt::Display;
+
 use crate::{
     ast::{BinaryOperator, UnaryOperator},
-    idvec::{IdVec, new_id_type},
+    idvec::{IdSlice, IdVec, new_id_type},
     interning::InternedStr,
     lexing::SourceLocation,
 };
@@ -47,51 +49,6 @@ new_id_type!(pub struct VariableId);
 #[derive(Debug)]
 pub struct Variable {
     pub name: Option<InternedStr>,
-    pub typ: TypeId,
-}
-
-new_id_type!(pub struct TypeId);
-
-#[derive(Debug)]
-pub struct Type {
-    pub location: SourceLocation,
-    pub name: Option<InternedStr>,
-    pub kind: TypeKind,
-}
-
-#[derive(Debug)]
-pub enum TypeKind {
-    Resolving,
-
-    Infer(InferTypeKind),
-    Inferred(TypeId),
-
-    Runtime,
-    Integer(IntegerTypeKind),
-    FunctionItem(FunctionId),
-    Struct { members: Box<[TypeMember]> },
-    Enum { members: Box<[TypeMember]> },
-    Generic,
-}
-
-#[derive(Debug)]
-pub enum InferTypeKind {
-    Anything,
-    Number,
-    StructLike {
-        members: FxHashMap<InternedStr, TypeId>,
-    },
-}
-
-#[derive(Debug)]
-pub enum IntegerTypeKind {
-    I64,
-}
-
-#[derive(Debug, Clone)]
-pub struct TypeMember {
-    pub location: SourceLocation,
-    pub name: InternedStr,
     pub typ: TypeId,
 }
 
@@ -193,4 +150,137 @@ pub struct DeconstructorMember {
     pub location: SourceLocation,
     pub name: InternedStr,
     pub pattern: Pattern,
+}
+
+new_id_type!(pub struct TypeId);
+
+#[derive(Debug)]
+pub struct Type {
+    pub location: SourceLocation,
+    pub name: Option<InternedStr>,
+    pub kind: TypeKind,
+}
+
+#[derive(Debug)]
+pub enum TypeKind {
+    Resolving,
+
+    Infer(InferTypeKind),
+    Inferred(TypeId),
+
+    Runtime,
+    Integer(IntegerTypeKind),
+    FunctionItem(FunctionId),
+    Struct { members: Box<[TypeMember]> },
+    Enum { members: Box<[TypeMember]> },
+    Generic,
+}
+
+#[derive(Debug)]
+pub enum InferTypeKind {
+    Anything,
+    Number,
+    StructLike {
+        members: FxHashMap<InternedStr, TypeId>,
+    },
+}
+
+#[derive(Debug)]
+pub enum IntegerTypeKind {
+    I64,
+}
+
+#[derive(Debug, Clone)]
+pub struct TypeMember {
+    pub location: SourceLocation,
+    pub name: InternedStr,
+    pub typ: TypeId,
+}
+
+pub struct PrettyPrintError<'a> {
+    pub typ: TypeId,
+    pub types: &'a IdSlice<TypeId, Type>,
+}
+
+impl Display for PrettyPrintError<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut typ = &self.types[self.typ];
+        loop {
+            break match typ.kind {
+                TypeKind::Resolving => write!(f, "_"),
+                TypeKind::Infer(ref infer_type_kind) => match *infer_type_kind {
+                    InferTypeKind::Anything => write!(f, "_"),
+                    InferTypeKind::Number => write!(f, "{{number}}"),
+                    InferTypeKind::StructLike { ref members } => {
+                        write!(f, "_ {{")?;
+                        for (i, (&name, &typ)) in members.iter().enumerate() {
+                            write!(f, " ")?;
+                            if i + 1 != members.len() {
+                                write!(f, ",")?;
+                            }
+                            write!(
+                                f,
+                                "{name}: {}",
+                                PrettyPrintError {
+                                    typ,
+                                    types: self.types
+                                }
+                            )?;
+                        }
+                        write!(f, "}}")
+                    }
+                },
+                TypeKind::Inferred(id) => {
+                    typ = &self.types[id];
+                    continue;
+                }
+                TypeKind::Runtime => write!(f, "Runtime"),
+                TypeKind::Integer(ref integer_type) => match *integer_type {
+                    IntegerTypeKind::I64 => write!(f, "I64"),
+                },
+                TypeKind::FunctionItem(_) => {
+                    write!(f, "{{function item for '{}'}}", typ.name.unwrap())
+                }
+                TypeKind::Struct { ref members } => {
+                    write!(f, "{} {{", typ.name.unwrap())?;
+                    for (i, member) in members.iter().enumerate() {
+                        write!(f, " ")?;
+                        if i + 1 != members.len() {
+                            write!(f, ",")?;
+                        }
+                        write!(
+                            f,
+                            "{}: {}",
+                            member.name,
+                            PrettyPrintError {
+                                typ: member.typ,
+                                types: self.types
+                            }
+                        )?;
+                    }
+                    write!(f, "}}")
+                }
+                TypeKind::Enum { ref members } => {
+                    write!(f, "{} {{", typ.name.unwrap())?;
+                    for (i, member) in members.iter().enumerate() {
+                        write!(f, " ")?;
+                        if i + 1 != members.len() {
+                            write!(f, ",")?;
+                        }
+                        write!(
+                            f,
+                            "{}: {}",
+                            member.name,
+                            PrettyPrintError {
+                                typ: member.typ,
+                                types: self.types
+                            }
+                        )?;
+                    }
+                    write!(f, "}}")
+                }
+                TypeKind::Generic => write!(f, "{}", typ.name.unwrap()),
+            };
+        }
+    }
 }

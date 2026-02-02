@@ -1,10 +1,11 @@
 use std::{num::NonZeroUsize, process::ExitCode};
 
 use crate::{
+    inferring::{infer_program, print_inferring_errors},
     interning::InternedStr,
     lexing::SourceLocation,
     parsing::parse_file,
-    resolving::{print_errors, resolve_program},
+    resolving::{print_resolving_errors, resolve_program},
     validating::validate_items,
 };
 
@@ -12,6 +13,7 @@ pub const FILE_EXTENSION: &str = "lang";
 
 pub mod ast;
 pub mod idvec;
+pub mod inferring;
 pub mod interning;
 pub mod lexing;
 pub mod parsing;
@@ -52,7 +54,7 @@ fn main() -> ExitCode {
     };
     drop(syntax_tree_items);
 
-    let result = match resolve_program(
+    let mut resolved_program = resolve_program(
         SourceLocation {
             filepath,
             position: 0,
@@ -60,20 +62,19 @@ fn main() -> ExitCode {
             column: NonZeroUsize::MIN,
         },
         &ast_items,
-    ) {
-        Ok(result) => result,
-        Err(error) => {
-            eprintln!("{error:#?}");
-            return ExitCode::FAILURE;
-        }
-    };
-
-    if !result.errors.is_empty() {
-        print_errors(&result);
+    );
+    let inferring_errors = infer_program(
+        &mut resolved_program.types,
+        &resolved_program.function_signatures,
+        &resolved_program.function_bodies,
+    );
+    if !resolved_program.errors.is_empty() || !inferring_errors.is_empty() {
+        print_resolving_errors(&resolved_program);
+        print_inferring_errors(&inferring_errors, &resolved_program.types);
         return ExitCode::FAILURE;
     }
 
-    println!("{result:#?}");
+    println!("{resolved_program:#?}");
 
     ExitCode::SUCCESS
 }

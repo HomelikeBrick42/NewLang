@@ -29,8 +29,8 @@ pub enum ResolvingErrorKind {
     FunctionWithoutBody,
 }
 
-pub fn print_errors(result: &ResolvedProgram) {
-    for error in &result.errors {
+pub fn print_resolving_errors(resolved_program: &ResolvedProgram) {
+    for error in &resolved_program.errors {
         eprint!("{}: ", error.location);
         match error.kind {
             ResolvingErrorKind::CyclicDependency { location } => {
@@ -180,7 +180,7 @@ struct FunctionBodyToCheck<'ast> {
 pub fn resolve_program<'ast>(
     location: SourceLocation,
     items: &'ast [ast::Item],
-) -> Result<ResolvedProgram<'ast>, ResolvingError> {
+) -> ResolvedProgram<'ast> {
     let mut types = IdVec::new();
     let mut function_signatures = IdVec::new();
     let mut function_bodies_to_check = VecDeque::new();
@@ -286,7 +286,7 @@ pub fn resolve_program<'ast>(
         }
     }
 
-    Ok(ResolvedProgram {
+    ResolvedProgram {
         types,
 
         function_signatures,
@@ -297,7 +297,7 @@ pub fn resolve_program<'ast>(
         module_items,
 
         errors,
-    })
+    }
 }
 
 fn create_unresolved_module_items<'ast>(
@@ -491,7 +491,7 @@ fn resolve_module_item<'ast>(
                     return_type,
                     typ: types.push(ti::Type {
                         location,
-                        name: None,
+                        name: Some(name),
                         kind: ti::TypeKind::FunctionItem(id),
                     }),
                 });
