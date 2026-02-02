@@ -1197,8 +1197,8 @@ fn resolve_statement<'ast>(
                 ref pattern,
                 ref value,
             } => ti::StatementKind::Assignment {
-                pattern: Box::new(resolve_pattern(
-                    pattern,
+                value: Box::new(resolve_expression(
+                    value,
                     scope,
                     types,
                     function_signatures,
@@ -1209,8 +1209,8 @@ fn resolve_statement<'ast>(
                     builtins,
                     variables,
                 )?),
-                value: Box::new(resolve_expression(
-                    value,
+                pattern: Box::new(resolve_pattern(
+                    pattern,
                     scope,
                     types,
                     function_signatures,
