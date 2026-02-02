@@ -1,5 +1,4 @@
 use nonmax::NonMaxUsize;
-use rustc_hash::FxHashMap;
 use std::{
     fmt::Debug,
     hash::Hash,
@@ -183,54 +182,71 @@ impl<I: Id + Debug, T: Debug> Debug for IdSlice<I, T> {
 }
 
 pub struct IdMap<I: Id, T> {
-    map: FxHashMap<I, T>,
+    values: Vec<Option<T>>,
+    _index: PhantomData<I>,
 }
 
 impl<I: Id, T> IdMap<I, T> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
-            map: FxHashMap::default(),
+            values: Vec::new(),
+            _index: PhantomData,
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.map.len()
+    pub const fn len(&self) -> usize {
+        self.values.len()
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = (I, &T)> + FusedIterator {
-        self.map.iter().map(|(&id, value)| (id, value))
-    }
-
-    pub fn iter_mut(&mut self) -> impl ExactSizeIterator<Item = (I, &mut T)> + FusedIterator {
-        self.map.iter_mut().map(|(&id, value)| (id, value))
-    }
-}
-
-impl<I: Id + Eq + Hash, T> IdMap<I, T> {
     pub fn insert(&mut self, id: I, value: T) -> Option<T> {
-        self.map.insert(id, value)
+        let index = id.into_index().get();
+        if index >= self.len() {
+            self.values.reserve(index - self.len() + 1);
+            self.values.resize_with(index, || None);
+            self.values.push(Some(value));
+            None
+        } else {
+            self.values[index].replace(value)
+        }
     }
 
     pub fn get(&self, id: I) -> Option<&T> {
-        self.map.get(&id)
+        self.values
+            .get(id.into_index().get())
+            .and_then(|r| r.as_ref())
     }
 
     pub fn get_mut(&mut self, id: I) -> Option<&mut T> {
-        self.map.get_mut(&id)
+        self.values
+            .get_mut(id.into_index().get())
+            .and_then(|r| r.as_mut())
     }
 
-    pub fn get_disjoint_mut<const N: usize>(&mut self, ids: [I; N]) -> Option<[&mut T; N]> {
-        let results = self.map.get_disjoint_mut(ids.each_ref());
-        for result in &results {
-            if result.is_none() {
-                return None;
-            }
-        }
-        Some(results.map(|result| result.unwrap()))
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = (I, &T)> + FusedIterator {
+        self.values.iter().enumerate().filter_map(|(index, value)| {
+            Some((I::from_index(index.try_into().unwrap()), value.as_ref()?))
+        })
+    }
+
+    pub fn iter_mut(&mut self) -> impl DoubleEndedIterator<Item = (I, &mut T)> + FusedIterator {
+        self.values
+            .iter_mut()
+            .enumerate()
+            .filter_map(|(index, value)| {
+                Some((I::from_index(index.try_into().unwrap()), value.as_mut()?))
+            })
+    }
+
+    pub fn get_disjoint_mut<const N: usize>(&mut self, ids: [I; N]) -> [Option<&mut T>; N] {
+        self.values
+            .get_disjoint_mut(ids.map(|id| id.into_index().get()))
+            .ok()
+            .map(|refs| refs.map(Option::as_mut))
+            .unwrap_or([const { None }; N])
     }
 }
 

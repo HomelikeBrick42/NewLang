@@ -474,6 +474,11 @@ fn parse_primary_expression(
             },
         },
 
+        open_brace_token @ Token {
+            location: _,
+            kind: TokenKind::OpenBrace,
+        } => parse_block(lexer, open_brace_token)?,
+
         let_token @ Token {
             location,
             kind: TokenKind::LetKeyword,

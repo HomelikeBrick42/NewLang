@@ -48,6 +48,7 @@ pub enum ParameterKind {
 
 #[derive(Debug)]
 pub struct Member {
+    pub location: SourceLocation,
     pub name: InternedStr,
     pub typ: Type,
 }
@@ -112,13 +113,13 @@ pub struct ConstructorMember {
     pub value: Expression,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum UnaryOperator {
     Plus,
     Negate,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum BinaryOperator {
     Add,
     Subtract,
@@ -148,9 +149,13 @@ pub struct Pattern {
 pub enum PatternKind {
     Path(Box<Path>),
     Integer(u128),
-    Destructor {
+    Deconstructor {
         typ: Box<Type>,
-        members: Box<[DestructorMember]>,
+        members: Box<[DeconstructorMember]>,
+    },
+    MemberAccess {
+        operand: Box<Expression>,
+        name: InternedStr,
     },
     Let {
         name: InternedStr,
@@ -159,7 +164,7 @@ pub enum PatternKind {
 }
 
 #[derive(Debug)]
-pub struct DestructorMember {
+pub struct DeconstructorMember {
     pub location: SourceLocation,
     pub name: InternedStr,
     pub pattern: Pattern,

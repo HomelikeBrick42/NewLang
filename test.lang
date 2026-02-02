@@ -1,6 +1,8 @@
 module core
 
 fn main(runtime: core::Runtime) {
-    let x: core::I64 = 1 + 2 * 3
+    let x = 1 + 2 * 3
     core::print_i64(x, runtime)
+
+    let true = core::Bool { true: {} }
 }
