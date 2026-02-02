@@ -149,9 +149,9 @@ pub struct Pattern {
 pub enum PatternKind {
     Path(Box<Path>),
     Integer(u128),
-    Destructor {
+    Deconstructor {
         typ: Box<Type>,
-        members: Box<[DestructorMember]>,
+        members: Box<[DeconstructorMember]>,
     },
     MemberAccess {
         operand: Box<Expression>,
@@ -164,7 +164,7 @@ pub enum PatternKind {
 }
 
 #[derive(Debug)]
-pub struct DestructorMember {
+pub struct DeconstructorMember {
     pub location: SourceLocation,
     pub name: InternedStr,
     pub pattern: Pattern,

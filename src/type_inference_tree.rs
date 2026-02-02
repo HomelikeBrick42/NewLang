@@ -14,8 +14,6 @@ pub struct FunctionSignature {
     pub parameters: Box<[FunctionParameter]>,
     pub return_type: TypeId,
     pub typ: TypeId,
-    pub variables: IdVec<VariableId, Variable>,
-    pub parameter_variables: Box<[Option<VariableId>]>,
 }
 
 #[derive(Debug)]
@@ -32,7 +30,11 @@ pub enum FunctionParameterKind {
 #[derive(Debug)]
 pub enum FunctionBody {
     Builtin(BuiltinFunctionBody),
-    Expression(Box<Expression>),
+    Expression {
+        variables: IdVec<VariableId, Variable>,
+        parameter_variables: Box<[Option<VariableId>]>,
+        expression: Box<Expression>,
+    },
 }
 
 #[derive(Debug)]
@@ -176,12 +178,18 @@ pub enum PatternKind {
     Variable(VariableId),
     Function(FunctionId),
     Integer(u128),
-    Destructor { members: Box<[DestructorMember]> },
+    Deconstructor {
+        members: Box<[DeconstructorMember]>,
+    },
+    MemberAccess {
+        operand: Box<Expression>,
+        name: InternedStr,
+    },
     Let(VariableId),
 }
 
 #[derive(Debug)]
-pub struct DestructorMember {
+pub struct DeconstructorMember {
     pub location: SourceLocation,
     pub name: InternedStr,
     pub pattern: Pattern,

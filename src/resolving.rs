@@ -9,6 +9,7 @@ use crate::{
 };
 use derive_more::Debug;
 use rustc_hash::FxHashMap;
+use std::collections::VecDeque;
 
 #[derive(Debug)]
 pub struct ResolvingError {
@@ -22,7 +23,10 @@ pub enum ResolvingErrorKind {
     UnableToFindName { name: InternedStr },
     ExpectedModule { got: Name },
     ExpectedType { got: Name },
+    ExpectedValue { got: Name },
+    ExpectedValueOrType { got: Name },
     TypeAliasMustHaveType,
+    FunctionWithoutBody,
 }
 
 new_id_type!(pub struct ModuleId);
@@ -71,18 +75,6 @@ pub enum NameKind {
     Variable(ti::VariableId),
 }
 
-struct Scope {
-    parent_module: ModuleId,
-    names: FxHashMap<InternedStr, Name>,
-}
-
-struct Builtins {
-    runtime_type: Option<ti::TypeId>,
-    i64_type: Option<ti::TypeId>,
-    unit_type: Option<ti::TypeId>,
-    bool_type: Option<ti::TypeId>,
-}
-
 #[derive(Debug)]
 pub struct ResolvedProgram<'ast> {
     pub types: IdVec<ti::TypeId, ti::Type>,
@@ -97,13 +89,34 @@ pub struct ResolvedProgram<'ast> {
     pub errors: Vec<ResolvingError>,
 }
 
+struct Scope {
+    parent_module: ModuleId,
+    names: FxHashMap<InternedStr, Name>,
+}
+
+struct Builtins {
+    runtime_type: Option<ti::TypeId>,
+    i64_type: Option<ti::TypeId>,
+    unit_type: Option<ti::TypeId>,
+    bool_type: Option<ti::TypeId>,
+}
+
+struct FunctionBodyToCheck<'ast> {
+    function: ti::FunctionId,
+    variables: IdVec<ti::VariableId, ti::Variable>,
+    parameter_variables: Box<[Option<ti::VariableId>]>,
+    scope: Scope,
+    expression: &'ast ast::Expression,
+}
+
 pub fn resolve_program<'ast>(
     location: SourceLocation,
     items: &'ast [ast::Item],
 ) -> Result<ResolvedProgram<'ast>, ResolvingError> {
     let mut types = IdVec::new();
     let mut function_signatures = IdVec::new();
-    let function_bodies = IdMap::new();
+    let mut function_bodies_to_check = VecDeque::new();
+    let mut function_bodies = IdMap::new();
     let mut modules = IdVec::new();
     let mut module_items = IdVec::new();
     let mut builtins = Builtins {
@@ -122,6 +135,8 @@ pub fn resolve_program<'ast>(
         false,
         &mut types,
         &mut function_signatures,
+        &mut function_bodies,
+        &mut function_bodies_to_check,
         &mut modules,
         &mut module_items,
         &mut builtins,
@@ -145,6 +160,8 @@ pub fn resolve_program<'ast>(
                 id,
                 &mut types,
                 &mut function_signatures,
+                &mut function_bodies,
+                &mut function_bodies_to_check,
                 &mut modules,
                 &mut module_items,
                 &mut builtins,
@@ -154,6 +171,46 @@ pub fn resolve_program<'ast>(
             }
 
             module_item_index += 1;
+        }
+
+        while let Some(FunctionBodyToCheck {
+            function,
+            mut variables,
+            parameter_variables,
+            scope,
+            expression,
+        }) = function_bodies_to_check.pop_front()
+        {
+            was_unresolved_item = true;
+
+            let expression = match resolve_expression(
+                expression,
+                &scope,
+                &mut types,
+                &mut function_signatures,
+                &mut function_bodies,
+                &mut function_bodies_to_check,
+                &mut modules,
+                &mut module_items,
+                &mut builtins,
+                &mut variables,
+            ) {
+                Ok(expression) => Box::new(expression),
+                Err(error) => {
+                    errors.push(error);
+                    continue;
+                }
+            };
+
+            assert!(function_bodies.get(function).is_none());
+            function_bodies.insert(
+                function,
+                ti::FunctionBody::Expression {
+                    variables,
+                    parameter_variables,
+                    expression,
+                },
+            );
         }
 
         if !was_unresolved_item {
@@ -183,6 +240,8 @@ fn create_unresolved_module_items<'ast>(
     transparent: bool,
     types: &mut IdVec<ti::TypeId, ti::Type>,
     function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
+    function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
     modules: &mut IdVec<ModuleId, Module>,
     module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
     builtins: &mut Builtins,
@@ -216,6 +275,8 @@ fn create_unresolved_module_items<'ast>(
                 module_item,
                 types,
                 function_signatures,
+                function_bodies,
+                function_bodies_to_check,
                 modules,
                 module_items,
                 builtins,
@@ -231,6 +292,8 @@ fn resolve_module_item<'ast>(
     id: ModuleItemId,
     types: &mut IdVec<ti::TypeId, ti::Type>,
     function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
+    function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
     modules: &mut IdVec<ModuleId, Module>,
     module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
     builtins: &mut Builtins,
@@ -243,15 +306,17 @@ fn resolve_module_item<'ast>(
     } = module_items[id]
     {
         *kind = ModuleItemKind::Resolving;
+
+        let mut scope = Scope {
+            parent_module: module,
+            names: FxHashMap::default(),
+        };
+
         let &ast::Item {
             location: _,
             builtin,
             ref kind,
         } = item;
-        let mut scope = Scope {
-            parent_module: module,
-            names: FxHashMap::default(),
-        };
         module_items[id].kind = match *kind {
             ast::ItemKind::Module { name: _, ref items } => {
                 ModuleItemKind::Module(create_unresolved_module_items(
@@ -262,6 +327,8 @@ fn resolve_module_item<'ast>(
                     false,
                     types,
                     function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
                     modules,
                     module_items,
                     builtins,
@@ -290,6 +357,8 @@ fn resolve_module_item<'ast>(
                                         &scope,
                                         types,
                                         function_signatures,
+                                        function_bodies,
+                                        function_bodies_to_check,
                                         modules,
                                         module_items,
                                         builtins,
@@ -341,27 +410,49 @@ fn resolve_module_item<'ast>(
                     &scope,
                     types,
                     function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
                     modules,
                     module_items,
                     builtins,
                 )?;
 
-                _ = body;
+                let id = function_signatures.push_with(|id| ti::FunctionSignature {
+                    name: Some(name),
+                    parameters,
+                    return_type,
+                    typ: types.push(ti::Type {
+                        location,
+                        name: None,
+                        kind: ti::TypeKind::FunctionItem(id),
+                    }),
+                });
 
-                ModuleItemKind::Function(function_signatures.push_with(|id| {
-                    ti::FunctionSignature {
-                        name: Some(name),
-                        parameters,
-                        return_type,
-                        typ: types.push(ti::Type {
-                            location,
-                            name: None,
-                            kind: ti::TypeKind::FunctionItem(id),
+                if builtin {
+                    assert!(body.is_none());
+                    function_bodies.insert(
+                        id,
+                        ti::FunctionBody::Builtin(match name.as_str() {
+                            "print_i64" => ti::BuiltinFunctionBody::PrintI64,
+                            _ => panic!(),
                         }),
+                    );
+                } else if let Some(body) = body {
+                    function_bodies_to_check.push_back(FunctionBodyToCheck {
+                        function: id,
                         variables,
                         parameter_variables,
-                    }
-                }))
+                        scope,
+                        expression: body,
+                    });
+                } else {
+                    return Err(ResolvingError {
+                        location,
+                        kind: ResolvingErrorKind::FunctionWithoutBody,
+                    });
+                }
+
+                ModuleItemKind::Function(id)
             }
 
             ast::ItemKind::Struct {
@@ -390,6 +481,8 @@ fn resolve_module_item<'ast>(
                                     &scope,
                                     types,
                                     function_signatures,
+                                    function_bodies,
+                                    function_bodies_to_check,
                                     modules,
                                     module_items,
                                     builtins,
@@ -439,6 +532,8 @@ fn resolve_module_item<'ast>(
                                     &scope,
                                     types,
                                     function_signatures,
+                                    function_bodies,
+                                    function_bodies_to_check,
                                     modules,
                                     module_items,
                                     builtins,
@@ -495,6 +590,8 @@ fn resolve_module_item<'ast>(
                     &scope,
                     types,
                     function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
                     modules,
                     module_items,
                     builtins,
@@ -511,10 +608,12 @@ fn resolve_module_item<'ast>(
 }
 
 fn resolve_type<'ast>(
-    &ast::Type { location, ref kind }: &ast::Type,
+    &ast::Type { location, ref kind }: &'ast ast::Type,
     scope: &Scope,
     types: &mut IdVec<ti::TypeId, ti::Type>,
     function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
+    function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
     modules: &mut IdVec<ModuleId, Module>,
     module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
     builtins: &mut Builtins,
@@ -526,6 +625,8 @@ fn resolve_type<'ast>(
                 scope,
                 types,
                 function_signatures,
+                function_bodies,
+                function_bodies_to_check,
                 modules,
                 module_items,
                 builtins,
@@ -547,10 +648,12 @@ fn resolve_type<'ast>(
 }
 
 fn resolve_path<'ast>(
-    &ast::Path { location, ref kind }: &ast::Path,
+    &ast::Path { location, ref kind }: &'ast ast::Path,
     scope: &Scope,
     types: &mut IdVec<ti::TypeId, ti::Type>,
     function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
+    function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
     modules: &mut IdVec<ModuleId, Module>,
     module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
     builtins: &mut Builtins,
@@ -566,6 +669,8 @@ fn resolve_path<'ast>(
                     name,
                     types,
                     function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
                     modules,
                     module_items,
                     builtins,
@@ -579,6 +684,8 @@ fn resolve_path<'ast>(
                 scope,
                 types,
                 function_signatures,
+                function_bodies,
+                function_bodies_to_check,
                 modules,
                 module_items,
                 builtins,
@@ -590,6 +697,8 @@ fn resolve_path<'ast>(
                     name,
                     types,
                     function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
                     modules,
                     module_items,
                     builtins,
@@ -612,6 +721,8 @@ fn resolve_module_name<'ast>(
     name: InternedStr,
     types: &mut IdVec<ti::TypeId, ti::Type>,
     function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
+    function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
     modules: &mut IdVec<ModuleId, Module>,
     module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
     builtins: &mut Builtins,
@@ -622,6 +733,8 @@ fn resolve_module_name<'ast>(
             item,
             types,
             function_signatures,
+            function_bodies,
+            function_bodies_to_check,
             modules,
             module_items,
             builtins,
@@ -652,6 +765,8 @@ fn resolve_module_name<'ast>(
             name,
             types,
             function_signatures,
+            function_bodies,
+            function_bodies_to_check,
             modules,
             module_items,
             builtins,
@@ -662,4 +777,619 @@ fn resolve_module_name<'ast>(
             kind: ResolvingErrorKind::UnableToFindName { name },
         })
     }
+}
+
+fn resolve_expression<'ast>(
+    &ast::Expression { location, ref kind }: &'ast ast::Expression,
+    scope: &Scope,
+    types: &mut IdVec<ti::TypeId, ti::Type>,
+    function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
+    function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
+    modules: &mut IdVec<ModuleId, Module>,
+    module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
+    builtins: &mut Builtins,
+    variables: &mut IdVec<ti::VariableId, ti::Variable>,
+) -> Result<ti::Expression, ResolvingError> {
+    Ok(match *kind {
+        ast::ExpressionKind::Path(ref path) => {
+            let name = resolve_path(
+                path,
+                scope,
+                types,
+                function_signatures,
+                function_bodies,
+                function_bodies_to_check,
+                modules,
+                module_items,
+                builtins,
+            )?;
+            match name.kind {
+                NameKind::Function(id) => ti::Expression {
+                    location,
+                    typ: function_signatures[id].typ,
+                    kind: ti::ExpressionKind::Function(id),
+                },
+
+                NameKind::Variable(id) => ti::Expression {
+                    location,
+                    typ: variables[id].typ,
+                    kind: ti::ExpressionKind::Variable(id),
+                },
+
+                NameKind::Module(_) | NameKind::Type(_) => {
+                    return Err(ResolvingError {
+                        location,
+                        kind: ResolvingErrorKind::ExpectedValue { got: name },
+                    });
+                }
+            }
+        }
+
+        ast::ExpressionKind::Integer(value) => ti::Expression {
+            location,
+            typ: types.push(ti::Type {
+                location,
+                name: None,
+                kind: ti::TypeKind::Infer(ti::InferTypeKind::Number),
+            }),
+            kind: ti::ExpressionKind::Integer(value),
+        },
+
+        ast::ExpressionKind::Block {
+            ref statements,
+            ref last_expression,
+        } => {
+            let module = create_unresolved_module_items(
+                location,
+                statements
+                    .iter()
+                    .filter_map(|statement| match statement.kind {
+                        ast::StatementKind::Item(ref item) => Some(&**item),
+                        _ => None,
+                    }),
+                Some(scope.parent_module),
+                None,
+                true,
+                types,
+                function_signatures,
+                function_bodies,
+                function_bodies_to_check,
+                modules,
+                module_items,
+                builtins,
+            )?;
+            let mut scope = Scope {
+                parent_module: module,
+                names: scope.names.clone(),
+            };
+            let statements = statements
+                .iter()
+                .filter_map(|statement| {
+                    resolve_statement(
+                        statement,
+                        &mut scope,
+                        types,
+                        function_signatures,
+                        function_bodies,
+                        function_bodies_to_check,
+                        modules,
+                        module_items,
+                        builtins,
+                        variables,
+                    )
+                    .transpose()
+                })
+                .collect::<Result<_, ResolvingError>>()?;
+            let last_expression = Box::new(resolve_expression(
+                last_expression,
+                &scope,
+                types,
+                function_signatures,
+                function_bodies,
+                function_bodies_to_check,
+                modules,
+                module_items,
+                builtins,
+                variables,
+            )?);
+            ti::Expression {
+                location,
+                typ: last_expression.typ,
+                kind: ti::ExpressionKind::Block {
+                    statements,
+                    last_expression,
+                },
+            }
+        }
+
+        ast::ExpressionKind::Constructor {
+            ref typ,
+            ref members,
+        } => ti::Expression {
+            location,
+            typ: resolve_type(
+                typ,
+                scope,
+                types,
+                function_signatures,
+                function_bodies,
+                function_bodies_to_check,
+                modules,
+                module_items,
+                builtins,
+            )?,
+            kind: ti::ExpressionKind::Constructor {
+                members: members
+                    .iter()
+                    .map(
+                        |&ast::ConstructorMember {
+                             location,
+                             name,
+                             ref value,
+                         }| {
+                            Ok(ti::ConstructorMember {
+                                location,
+                                name,
+                                value: resolve_expression(
+                                    value,
+                                    scope,
+                                    types,
+                                    function_signatures,
+                                    function_bodies,
+                                    function_bodies_to_check,
+                                    modules,
+                                    module_items,
+                                    builtins,
+                                    variables,
+                                )?,
+                            })
+                        },
+                    )
+                    .collect::<Result<_, ResolvingError>>()?,
+            },
+        },
+
+        ast::ExpressionKind::Unary {
+            operator,
+            ref operand,
+        } => ti::Expression {
+            location,
+            typ: types.push(ti::Type {
+                location,
+                name: None,
+                kind: ti::TypeKind::Infer(ti::InferTypeKind::Anything),
+            }),
+            kind: ti::ExpressionKind::Unary {
+                operator,
+                operand: Box::new(resolve_expression(
+                    operand,
+                    scope,
+                    types,
+                    function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
+                    modules,
+                    module_items,
+                    builtins,
+                    variables,
+                )?),
+            },
+        },
+
+        ast::ExpressionKind::Binary {
+            ref left,
+            operator,
+            ref right,
+        } => ti::Expression {
+            location,
+            typ: types.push(ti::Type {
+                location,
+                name: None,
+                kind: ti::TypeKind::Infer(ti::InferTypeKind::Anything),
+            }),
+            kind: ti::ExpressionKind::Binary {
+                left: Box::new(resolve_expression(
+                    left,
+                    scope,
+                    types,
+                    function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
+                    modules,
+                    module_items,
+                    builtins,
+                    variables,
+                )?),
+                operator,
+                right: Box::new(resolve_expression(
+                    right,
+                    scope,
+                    types,
+                    function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
+                    modules,
+                    module_items,
+                    builtins,
+                    variables,
+                )?),
+            },
+        },
+
+        ast::ExpressionKind::Call {
+            ref operand,
+            ref arguments,
+        } => ti::Expression {
+            location,
+            typ: types.push(ti::Type {
+                location,
+                name: None,
+                kind: ti::TypeKind::Infer(ti::InferTypeKind::Anything),
+            }),
+            kind: ti::ExpressionKind::Call {
+                operand: Box::new(resolve_expression(
+                    operand,
+                    scope,
+                    types,
+                    function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
+                    modules,
+                    module_items,
+                    builtins,
+                    variables,
+                )?),
+                arguments: arguments
+                    .iter()
+                    .map(|argument| {
+                        resolve_argument(
+                            argument,
+                            scope,
+                            types,
+                            function_signatures,
+                            function_bodies,
+                            function_bodies_to_check,
+                            modules,
+                            module_items,
+                            builtins,
+                            variables,
+                        )
+                    })
+                    .collect::<Result<_, ResolvingError>>()?,
+            },
+        },
+
+        ast::ExpressionKind::MemberAccess { ref operand, name } => ti::Expression {
+            location,
+            typ: types.push(ti::Type {
+                location,
+                name: None,
+                kind: ti::TypeKind::Infer(ti::InferTypeKind::Anything),
+            }),
+            kind: ti::ExpressionKind::MemberAccess {
+                operand: Box::new(resolve_expression(
+                    operand,
+                    scope,
+                    types,
+                    function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
+                    modules,
+                    module_items,
+                    builtins,
+                    variables,
+                )?),
+                name,
+            },
+        },
+    })
+}
+
+fn resolve_argument<'ast>(
+    &ast::Argument { location, ref kind }: &'ast ast::Argument,
+    scope: &Scope,
+    types: &mut IdVec<ti::TypeId, ti::Type>,
+    function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
+    function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
+    modules: &mut IdVec<ModuleId, Module>,
+    module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
+    builtins: &mut Builtins,
+    variables: &mut IdVec<ti::VariableId, ti::Variable>,
+) -> Result<ti::Argument, ResolvingError> {
+    Ok(ti::Argument {
+        location,
+        kind: match *kind {
+            ast::ArgumentKind::ValueOrType(ref expression) => match expression.kind {
+                ast::ExpressionKind::Path(ref path) => {
+                    let name = resolve_path(
+                        path,
+                        scope,
+                        types,
+                        function_signatures,
+                        function_bodies,
+                        function_bodies_to_check,
+                        modules,
+                        module_items,
+                        builtins,
+                    )?;
+                    match name.kind {
+                        NameKind::Function(id) => {
+                            ti::ArgumentKind::Value(Box::new(ti::Expression {
+                                location,
+                                typ: function_signatures[id].typ,
+                                kind: ti::ExpressionKind::Function(id),
+                            }))
+                        }
+
+                        NameKind::Variable(id) => {
+                            ti::ArgumentKind::Value(Box::new(ti::Expression {
+                                location,
+                                typ: variables[id].typ,
+                                kind: ti::ExpressionKind::Variable(id),
+                            }))
+                        }
+
+                        NameKind::Type(_) => todo!(),
+
+                        NameKind::Module(_) => {
+                            return Err(ResolvingError {
+                                location,
+                                kind: ResolvingErrorKind::ExpectedValueOrType { got: name },
+                            });
+                        }
+                    }
+                }
+
+                _ => ti::ArgumentKind::Value(Box::new(resolve_expression(
+                    expression,
+                    scope,
+                    types,
+                    function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
+                    modules,
+                    module_items,
+                    builtins,
+                    variables,
+                )?)),
+            },
+
+            ast::ArgumentKind::Lifetime { name: _ } => todo!(),
+        },
+    })
+}
+
+fn resolve_statement<'ast>(
+    &ast::Statement { location, ref kind }: &'ast ast::Statement,
+    scope: &mut Scope,
+    types: &mut IdVec<ti::TypeId, ti::Type>,
+    function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
+    function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
+    modules: &mut IdVec<ModuleId, Module>,
+    module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
+    builtins: &mut Builtins,
+    variables: &mut IdVec<ti::VariableId, ti::Variable>,
+) -> Result<Option<ti::Statement>, ResolvingError> {
+    Ok(Some(ti::Statement {
+        location,
+        kind: match *kind {
+            ast::StatementKind::Item(_) => return Ok(None),
+
+            ast::StatementKind::Expression(ref expression) => {
+                ti::StatementKind::Expression(Box::new(resolve_expression(
+                    expression,
+                    scope,
+                    types,
+                    function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
+                    modules,
+                    module_items,
+                    builtins,
+                    variables,
+                )?))
+            }
+
+            ast::StatementKind::Assignment {
+                ref pattern,
+                ref value,
+            } => ti::StatementKind::Assignment {
+                pattern: Box::new(resolve_pattern(
+                    pattern,
+                    scope,
+                    types,
+                    function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
+                    modules,
+                    module_items,
+                    builtins,
+                    variables,
+                )?),
+                value: Box::new(resolve_expression(
+                    value,
+                    scope,
+                    types,
+                    function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
+                    modules,
+                    module_items,
+                    builtins,
+                    variables,
+                )?),
+            },
+        },
+    }))
+}
+
+fn resolve_pattern<'ast>(
+    &ast::Pattern { location, ref kind }: &'ast ast::Pattern,
+    scope: &mut Scope,
+    types: &mut IdVec<ti::TypeId, ti::Type>,
+    function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
+    function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
+    modules: &mut IdVec<ModuleId, Module>,
+    module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
+    builtins: &mut Builtins,
+    variables: &mut IdVec<ti::VariableId, ti::Variable>,
+) -> Result<ti::Pattern, ResolvingError> {
+    Ok(match *kind {
+        ast::PatternKind::Path(ref path) => {
+            let name = resolve_path(
+                path,
+                scope,
+                types,
+                function_signatures,
+                function_bodies,
+                function_bodies_to_check,
+                modules,
+                module_items,
+                builtins,
+            )?;
+            match name.kind {
+                NameKind::Function(id) => ti::Pattern {
+                    location,
+                    typ: function_signatures[id].typ,
+                    kind: ti::PatternKind::Function(id),
+                },
+
+                NameKind::Variable(id) => ti::Pattern {
+                    location,
+                    typ: variables[id].typ,
+                    kind: ti::PatternKind::Variable(id),
+                },
+
+                NameKind::Module(_) | NameKind::Type(_) => {
+                    return Err(ResolvingError {
+                        location,
+                        kind: ResolvingErrorKind::ExpectedValue { got: name },
+                    });
+                }
+            }
+        }
+
+        ast::PatternKind::Integer(value) => ti::Pattern {
+            location,
+            typ: types.push(ti::Type {
+                location,
+                name: None,
+                kind: ti::TypeKind::Infer(ti::InferTypeKind::Number),
+            }),
+            kind: ti::PatternKind::Integer(value),
+        },
+
+        ast::PatternKind::Deconstructor {
+            ref typ,
+            ref members,
+        } => ti::Pattern {
+            location,
+            typ: resolve_type(
+                typ,
+                scope,
+                types,
+                function_signatures,
+                function_bodies,
+                function_bodies_to_check,
+                modules,
+                module_items,
+                builtins,
+            )?,
+            kind: ti::PatternKind::Deconstructor {
+                members: members
+                    .iter()
+                    .map(
+                        |&ast::DeconstructorMember {
+                             location,
+                             name,
+                             ref pattern,
+                         }| {
+                            Ok(ti::DeconstructorMember {
+                                location,
+                                name,
+                                pattern: resolve_pattern(
+                                    pattern,
+                                    scope,
+                                    types,
+                                    function_signatures,
+                                    function_bodies,
+                                    function_bodies_to_check,
+                                    modules,
+                                    module_items,
+                                    builtins,
+                                    variables,
+                                )?,
+                            })
+                        },
+                    )
+                    .collect::<Result<_, ResolvingError>>()?,
+            },
+        },
+
+        ast::PatternKind::MemberAccess { ref operand, name } => ti::Pattern {
+            location,
+            typ: types.push(ti::Type {
+                location,
+                name: None,
+                kind: ti::TypeKind::Infer(ti::InferTypeKind::Anything),
+            }),
+            kind: ti::PatternKind::MemberAccess {
+                operand: Box::new(resolve_expression(
+                    operand,
+                    scope,
+                    types,
+                    function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
+                    modules,
+                    module_items,
+                    builtins,
+                    variables,
+                )?),
+                name,
+            },
+        },
+
+        ast::PatternKind::Let { name, ref typ } => {
+            let typ = if let Some(typ) = typ {
+                resolve_type(
+                    typ,
+                    scope,
+                    types,
+                    function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
+                    modules,
+                    module_items,
+                    builtins,
+                )?
+            } else {
+                types.push(ti::Type {
+                    location,
+                    name: Some(name),
+                    kind: ti::TypeKind::Infer(ti::InferTypeKind::Anything),
+                })
+            };
+            let variable = variables.push(ti::Variable {
+                name: Some(name),
+                typ,
+            });
+            scope.names.insert(
+                name,
+                Name {
+                    location,
+                    kind: NameKind::Variable(variable),
+                },
+            );
+            ti::Pattern {
+                location,
+                typ,
+                kind: ti::PatternKind::Let(variable),
+            }
+        }
+    })
 }
