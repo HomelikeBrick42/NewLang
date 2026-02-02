@@ -1,8 +1,11 @@
 use std::{num::NonZeroUsize, process::ExitCode};
 
 use crate::{
-    interning::InternedStr, lexing::SourceLocation, parsing::parse_file,
-    resolving::resolve_program, validating::validate_items,
+    interning::InternedStr,
+    lexing::SourceLocation,
+    parsing::parse_file,
+    resolving::{print_errors, resolve_program},
+    validating::validate_items,
 };
 
 pub const FILE_EXTENSION: &str = "lang";
@@ -65,11 +68,12 @@ fn main() -> ExitCode {
         }
     };
 
-    println!("{result:#?}");
-
     if !result.errors.is_empty() {
+        print_errors(&result);
         return ExitCode::FAILURE;
     }
+
+    println!("{result:#?}");
 
     ExitCode::SUCCESS
 }

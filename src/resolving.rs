@@ -19,7 +19,7 @@ pub struct ResolvingError {
 
 #[derive(Debug)]
 pub enum ResolvingErrorKind {
-    CyclicDependency,
+    CyclicDependency { location: SourceLocation },
     UnableToFindName { name: InternedStr },
     ExpectedModule { got: Name },
     ExpectedType { got: Name },
@@ -27,6 +27,74 @@ pub enum ResolvingErrorKind {
     ExpectedValueOrType { got: Name },
     TypeAliasMustHaveType,
     FunctionWithoutBody,
+}
+
+pub fn print_errors(result: &ResolvedProgram) {
+    for error in &result.errors {
+        eprint!("{}: ", error.location);
+        match error.kind {
+            ResolvingErrorKind::CyclicDependency { location } => {
+                eprintln!("Cyclic dependency detected");
+                eprintln!("NOTE: the cycle was started at {location}");
+            }
+
+            ResolvingErrorKind::UnableToFindName { name } => {
+                eprintln!("Unable to find name '{name}'");
+            }
+
+            ResolvingErrorKind::ExpectedModule { got } => {
+                let typ = match got.kind {
+                    NameKind::Module(_) => "module",
+                    NameKind::Function(_) => "function",
+                    NameKind::Type(_) => "type",
+                    NameKind::Variable(_) => "variable",
+                };
+                eprintln!("Expected a module but got a {typ}");
+                eprintln!("NOTE: the {typ} was declared at {}", got.location);
+            }
+
+            ResolvingErrorKind::ExpectedType { got } => {
+                let typ = match got.kind {
+                    NameKind::Module(_) => "module",
+                    NameKind::Function(_) => "function",
+                    NameKind::Type(_) => "type",
+                    NameKind::Variable(_) => "variable",
+                };
+                eprintln!("Expected a type but got a {typ}");
+                eprintln!("NOTE: the {typ} was declared at {}", got.location);
+            }
+
+            ResolvingErrorKind::ExpectedValue { got } => {
+                let typ = match got.kind {
+                    NameKind::Module(_) => "module",
+                    NameKind::Function(_) => "function",
+                    NameKind::Type(_) => "type",
+                    NameKind::Variable(_) => "variable",
+                };
+                eprintln!("Expected a value but got a {typ}");
+                eprintln!("NOTE: the {typ} was declared at {}", got.location);
+            }
+
+            ResolvingErrorKind::ExpectedValueOrType { got } => {
+                let typ = match got.kind {
+                    NameKind::Module(_) => "module",
+                    NameKind::Function(_) => "function",
+                    NameKind::Type(_) => "type",
+                    NameKind::Variable(_) => "variable",
+                };
+                eprintln!("Expected a value or a type but got a {typ}");
+                eprintln!("NOTE: the {typ} was declared at {}", got.location);
+            }
+
+            ResolvingErrorKind::TypeAliasMustHaveType => {
+                eprintln!("Type aliases must have an assigned type");
+            }
+
+            ResolvingErrorKind::FunctionWithoutBody => {
+                eprintln!("Functions must have a body");
+            }
+        }
+    }
 }
 
 new_id_type!(pub struct ModuleId);
@@ -746,8 +814,8 @@ fn resolve_module_name<'ast>(
 
                 ModuleItemKind::Resolving => {
                     return Err(ResolvingError {
-                        location,
-                        kind: ResolvingErrorKind::CyclicDependency,
+                        location: module_items[item].location,
+                        kind: ResolvingErrorKind::CyclicDependency { location },
                     });
                 }
 
