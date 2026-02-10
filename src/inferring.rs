@@ -1,5 +1,3 @@
-use std::collections::hash_map::Entry;
-
 use crate::{
     idvec::{IdMap, IdSlice, IdVec},
     lexing::SourceLocation,
@@ -9,6 +7,7 @@ use crate::{
         PatternKind, PrettyPrintError, Statement, StatementKind, Type, TypeId, TypeKind,
     },
 };
+use std::collections::hash_map::Entry;
 
 #[derive(Debug)]
 pub struct InferringError {

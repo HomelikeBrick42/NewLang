@@ -12,6 +12,7 @@ new_id_type!(pub struct FunctionId);
 
 #[derive(Debug)]
 pub struct FunctionSignature {
+    pub location: SourceLocation,
     pub name: Option<InternedStr>,
     pub parameters: Box<[FunctionParameter]>,
     pub return_type: TypeId,
@@ -39,7 +40,7 @@ pub enum FunctionBody {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum BuiltinFunctionBody {
     PrintI64,
 }
@@ -48,6 +49,7 @@ new_id_type!(pub struct VariableId);
 
 #[derive(Debug)]
 pub struct Variable {
+    pub location: SourceLocation,
     pub name: Option<InternedStr>,
     pub typ: TypeId,
 }
@@ -194,7 +196,7 @@ pub enum InferFunctionParameter {
     Value { typ: TypeId },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum IntegerTypeKind {
     I64,
 }

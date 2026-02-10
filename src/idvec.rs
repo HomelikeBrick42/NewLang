@@ -214,6 +214,14 @@ impl<I: Id, T> IdMap<I, T> {
         }
     }
 
+    pub fn remove(&mut self, id: I) -> Option<T> {
+        self.values.get_mut(id.into_index().get())?.take()
+    }
+
+    pub fn contains(&mut self, id: I) -> bool {
+        self.get(id).is_some()
+    }
+
     pub fn get(&self, id: I) -> Option<&T> {
         self.values
             .get(id.into_index().get())
