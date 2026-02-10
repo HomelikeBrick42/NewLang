@@ -1,13 +1,13 @@
-use std::{num::NonZeroUsize, process::ExitCode};
-
 use crate::{
     inferring::{infer_program, print_inferring_errors},
     interning::InternedStr,
     lexing::SourceLocation,
     parsing::parse_file,
     resolving::{print_resolving_errors, resolve_program},
+    type_checker::{print_type_checking_errors, type_check_program},
     validating::validate_items,
 };
+use std::{num::NonZeroUsize, process::ExitCode};
 
 pub const FILE_EXTENSION: &str = "lang";
 
@@ -19,7 +19,9 @@ pub mod lexing;
 pub mod parsing;
 pub mod resolving;
 pub mod syntax_tree;
+pub mod type_checker;
 pub mod type_inference_tree;
+pub mod typed_tree;
 pub mod validating;
 
 fn main() -> ExitCode {
@@ -78,7 +80,14 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    println!("{resolved_program:#?}");
+    let typed_program = type_check_program(&resolved_program);
+    if !typed_program.errors.is_empty() {
+        print_type_checking_errors(&typed_program);
+        return ExitCode::FAILURE;
+    }
+    drop(inferring_errors);
+
+    println!("{typed_program:#?}");
 
     ExitCode::SUCCESS
 }

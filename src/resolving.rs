@@ -144,6 +144,14 @@ pub enum NameKind {
 }
 
 #[derive(Debug)]
+pub struct Builtins {
+    pub runtime_type: Option<ti::TypeId>,
+    pub i64_type: Option<ti::TypeId>,
+    pub unit_type: Option<ti::TypeId>,
+    pub bool_type: Option<ti::TypeId>,
+}
+
+#[derive(Debug)]
 pub struct ResolvedProgram<'ast> {
     pub types: IdVec<ti::TypeId, ti::Type>,
 
@@ -154,19 +162,15 @@ pub struct ResolvedProgram<'ast> {
     pub modules: IdVec<ModuleId, Module>,
     pub module_items: IdVec<ModuleItemId, ModuleItem<'ast>>,
 
+    pub builtins: Builtins,
+
+    #[debug(ignore)]
     pub errors: Vec<ResolvingError>,
 }
 
 struct Scope {
     parent_module: ModuleId,
     names: FxHashMap<InternedStr, Name>,
-}
-
-struct Builtins {
-    runtime_type: Option<ti::TypeId>,
-    i64_type: Option<ti::TypeId>,
-    unit_type: Option<ti::TypeId>,
-    bool_type: Option<ti::TypeId>,
 }
 
 struct FunctionBodyToCheck<'ast> {
@@ -295,6 +299,8 @@ pub fn resolve_program<'ast>(
         global_module,
         modules,
         module_items,
+
+        builtins,
 
         errors,
     }
@@ -433,6 +439,7 @@ fn resolve_module_item<'ast>(
                                     )?;
 
                                     let variable = variables.push(ti::Variable {
+                                        location,
                                         name: Some(name),
                                         typ,
                                     });
@@ -486,6 +493,7 @@ fn resolve_module_item<'ast>(
                 )?;
 
                 let id = function_signatures.push_with(|id| ti::FunctionSignature {
+                    location,
                     name: Some(name),
                     parameters,
                     return_type,
@@ -1443,6 +1451,7 @@ fn resolve_pattern<'ast>(
                 })
             };
             let variable = variables.push(ti::Variable {
+                location,
                 name: Some(name),
                 typ,
             });
