@@ -335,7 +335,7 @@ fn create_unresolved_module_items<'ast>(
         | ast::ItemKind::Type { name, .. }) = item.kind;
 
         let module_item = module_items.push(ModuleItem {
-            location,
+            location: item.location,
             module,
             name,
             kind: ModuleItemKind::UnresolvedItem { item },
