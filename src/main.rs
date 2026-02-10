@@ -79,13 +79,14 @@ fn main() -> ExitCode {
         print_inferring_errors(&inferring_errors, &resolved_program.types);
         return ExitCode::FAILURE;
     }
+    drop(inferring_errors);
 
     let typed_program = type_check_program(&resolved_program);
     if !typed_program.errors.is_empty() {
         print_type_checking_errors(&typed_program);
         return ExitCode::FAILURE;
     }
-    drop(inferring_errors);
+    drop(resolved_program);
 
     println!("{typed_program:#?}");
 
