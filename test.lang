@@ -11,6 +11,8 @@ fn main(runtime: core::Runtime) {
     let t = Test { value: 42 }
     core::print_i64(t.value, runtime)
 
+    t.value = 10
+
     Test { value: let other_name } = t
     core::print_i64(other_name / 2, runtime)
 
