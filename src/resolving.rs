@@ -868,9 +868,9 @@ fn resolve_expression<'ast>(
     variables: &mut IdVec<ti::VariableId, ti::Variable>,
 ) -> Result<ti::Expression, ResolvingError> {
     Ok(match *kind {
-        ast::ExpressionKind::Path(ref path) => {
-            let name = resolve_path(
-                path,
+        ast::ExpressionKind::Place(ref place) => {
+            let place = Box::new(resolve_place(
+                place,
                 scope,
                 types,
                 function_signatures,
@@ -879,26 +879,12 @@ fn resolve_expression<'ast>(
                 modules,
                 module_items,
                 builtins,
-            )?;
-            match name.kind {
-                NameKind::Function(id) => ti::Expression {
-                    location,
-                    typ: function_signatures[id].typ,
-                    kind: ti::ExpressionKind::Function(id),
-                },
-
-                NameKind::Variable(id) => ti::Expression {
-                    location,
-                    typ: variables[id].typ,
-                    kind: ti::ExpressionKind::Variable(id),
-                },
-
-                NameKind::Module(_) | NameKind::Type(_) => {
-                    return Err(ResolvingError {
-                        location,
-                        kind: ResolvingErrorKind::ExpectedValue { got: name },
-                    });
-                }
+                variables,
+            )?);
+            ti::Expression {
+                location,
+                typ: place.typ,
+                kind: ti::ExpressionKind::Place(place),
             }
         }
 
@@ -1135,30 +1121,6 @@ fn resolve_expression<'ast>(
                     .collect::<Result<_, ResolvingError>>()?,
             },
         },
-
-        ast::ExpressionKind::MemberAccess { ref operand, name } => ti::Expression {
-            location,
-            typ: types.push(ti::Type {
-                location,
-                name: None,
-                kind: ti::TypeKind::Infer(ti::InferTypeKind::Anything),
-            }),
-            kind: ti::ExpressionKind::MemberAccess {
-                operand: Box::new(resolve_expression(
-                    operand,
-                    scope,
-                    types,
-                    function_signatures,
-                    function_bodies,
-                    function_bodies_to_check,
-                    modules,
-                    module_items,
-                    builtins,
-                    variables,
-                )?),
-                name,
-            },
-        },
     })
 }
 
@@ -1177,48 +1139,8 @@ fn resolve_argument<'ast>(
     Ok(ti::Argument {
         location,
         kind: match *kind {
-            ast::ArgumentKind::ValueOrType(ref expression) => match expression.kind {
-                ast::ExpressionKind::Path(ref path) => {
-                    let name = resolve_path(
-                        path,
-                        scope,
-                        types,
-                        function_signatures,
-                        function_bodies,
-                        function_bodies_to_check,
-                        modules,
-                        module_items,
-                        builtins,
-                    )?;
-                    match name.kind {
-                        NameKind::Function(id) => {
-                            ti::ArgumentKind::Value(Box::new(ti::Expression {
-                                location,
-                                typ: function_signatures[id].typ,
-                                kind: ti::ExpressionKind::Function(id),
-                            }))
-                        }
-
-                        NameKind::Variable(id) => {
-                            ti::ArgumentKind::Value(Box::new(ti::Expression {
-                                location,
-                                typ: variables[id].typ,
-                                kind: ti::ExpressionKind::Variable(id),
-                            }))
-                        }
-
-                        NameKind::Type(_) => todo!(),
-
-                        NameKind::Module(_) => {
-                            return Err(ResolvingError {
-                                location,
-                                kind: ResolvingErrorKind::ExpectedValueOrType { got: name },
-                            });
-                        }
-                    }
-                }
-
-                _ => ti::ArgumentKind::Value(Box::new(resolve_expression(
+            ast::ArgumentKind::ValueOrType(ref expression) => {
+                ti::ArgumentKind::Value(Box::new(resolve_expression(
                     expression,
                     scope,
                     types,
@@ -1229,8 +1151,8 @@ fn resolve_argument<'ast>(
                     module_items,
                     builtins,
                     variables,
-                )?)),
-            },
+                )?))
+            }
 
             ast::ArgumentKind::Lifetime { name: _ } => todo!(),
         },
@@ -1302,6 +1224,99 @@ fn resolve_statement<'ast>(
     }))
 }
 
+fn resolve_place<'ast>(
+    &ast::Place { location, ref kind }: &'ast ast::Place,
+    scope: &Scope,
+    types: &mut IdVec<ti::TypeId, ti::Type>,
+    function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
+    function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
+    modules: &mut IdVec<ModuleId, Module>,
+    module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
+    builtins: &mut Builtins,
+    variables: &mut IdVec<ti::VariableId, ti::Variable>,
+) -> Result<ti::Place, ResolvingError> {
+    Ok(match *kind {
+        ast::PlaceKind::Path(ref path) => {
+            let name = resolve_path(
+                path,
+                scope,
+                types,
+                function_signatures,
+                function_bodies,
+                function_bodies_to_check,
+                modules,
+                module_items,
+                builtins,
+            )?;
+            match name.kind {
+                NameKind::Function(id) => ti::Place {
+                    location,
+                    typ: function_signatures[id].typ,
+                    kind: ti::PlaceKind::Function(id),
+                },
+
+                NameKind::Variable(id) => ti::Place {
+                    location,
+                    typ: variables[id].typ,
+                    kind: ti::PlaceKind::Variable(id),
+                },
+
+                NameKind::Module(_) | NameKind::Type(_) => {
+                    return Err(ResolvingError {
+                        location,
+                        kind: ResolvingErrorKind::ExpectedValue { got: name },
+                    });
+                }
+            }
+        }
+
+        ast::PlaceKind::Expression(ref expression) => {
+            let expression = Box::new(resolve_expression(
+                expression,
+                scope,
+                types,
+                function_signatures,
+                function_bodies,
+                function_bodies_to_check,
+                modules,
+                module_items,
+                builtins,
+                variables,
+            )?);
+            ti::Place {
+                location,
+                typ: expression.typ,
+                kind: ti::PlaceKind::Expression(expression),
+            }
+        }
+
+        ast::PlaceKind::MemberAccess { ref operand, name } => ti::Place {
+            location,
+            typ: types.push(ti::Type {
+                location,
+                name: None,
+                kind: ti::TypeKind::Infer(ti::InferTypeKind::Anything),
+            }),
+            kind: ti::PlaceKind::MemberAccess {
+                operand: Box::new(resolve_place(
+                    operand,
+                    scope,
+                    types,
+                    function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
+                    modules,
+                    module_items,
+                    builtins,
+                    variables,
+                )?),
+                name,
+            },
+        },
+    })
+}
+
 fn resolve_pattern<'ast>(
     &ast::Pattern { location, ref kind }: &'ast ast::Pattern,
     scope: &mut Scope,
@@ -1315,9 +1330,9 @@ fn resolve_pattern<'ast>(
     variables: &mut IdVec<ti::VariableId, ti::Variable>,
 ) -> Result<ti::Pattern, ResolvingError> {
     Ok(match *kind {
-        ast::PatternKind::Path(ref path) => {
-            let name = resolve_path(
-                path,
+        ast::PatternKind::Place(ref place) => {
+            let place = Box::new(resolve_place(
+                place,
                 scope,
                 types,
                 function_signatures,
@@ -1326,26 +1341,12 @@ fn resolve_pattern<'ast>(
                 modules,
                 module_items,
                 builtins,
-            )?;
-            match name.kind {
-                NameKind::Function(id) => ti::Pattern {
-                    location,
-                    typ: function_signatures[id].typ,
-                    kind: ti::PatternKind::Function(id),
-                },
-
-                NameKind::Variable(id) => ti::Pattern {
-                    location,
-                    typ: variables[id].typ,
-                    kind: ti::PatternKind::Variable(id),
-                },
-
-                NameKind::Module(_) | NameKind::Type(_) => {
-                    return Err(ResolvingError {
-                        location,
-                        kind: ResolvingErrorKind::ExpectedValue { got: name },
-                    });
-                }
+                variables,
+            )?);
+            ti::Pattern {
+                location,
+                typ: place.typ,
+                kind: ti::PatternKind::Place(place),
             }
         }
 
@@ -1403,30 +1404,6 @@ fn resolve_pattern<'ast>(
                         },
                     )
                     .collect::<Result<_, ResolvingError>>()?,
-            },
-        },
-
-        ast::PatternKind::MemberAccess { ref operand, name } => ti::Pattern {
-            location,
-            typ: types.push(ti::Type {
-                location,
-                name: None,
-                kind: ti::TypeKind::Infer(ti::InferTypeKind::Anything),
-            }),
-            kind: ti::PatternKind::MemberAccess {
-                operand: Box::new(resolve_expression(
-                    operand,
-                    scope,
-                    types,
-                    function_signatures,
-                    function_bodies,
-                    function_bodies_to_check,
-                    modules,
-                    module_items,
-                    builtins,
-                    variables,
-                )?),
-                name,
             },
         },
 

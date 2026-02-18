@@ -1,8 +1,18 @@
 module core
 
+struct Test {
+    value: core::I64,
+}
+
 fn main(runtime: core::Runtime) {
     let x = 1 + 2 * 3
     core::print_i64(x, runtime)
+
+    let t = Test { value: 42 }
+    core::print_i64(t.value, runtime)
+
+    Test { value: let other_name } = t
+    core::print_i64(other_name / 2, runtime)
 
     let true = core::Bool { true: {} }
 }

@@ -77,7 +77,7 @@ pub struct Expression {
 
 #[derive(Debug)]
 pub enum ExpressionKind {
-    Path(Box<Path>),
+    Place(Box<Place>),
     Integer(u128),
     Block {
         statements: Box<[Statement]>,
@@ -99,10 +99,6 @@ pub enum ExpressionKind {
     Call {
         operand: Box<Expression>,
         arguments: Box<[Argument]>,
-    },
-    MemberAccess {
-        operand: Box<Expression>,
-        name: InternedStr,
     },
 }
 
@@ -140,6 +136,22 @@ pub enum ArgumentKind {
 }
 
 #[derive(Debug)]
+pub struct Place {
+    pub location: SourceLocation,
+    pub kind: PlaceKind,
+}
+
+#[derive(Debug)]
+pub enum PlaceKind {
+    Path(Box<Path>),
+    Expression(Box<Expression>),
+    MemberAccess {
+        operand: Box<Place>,
+        name: InternedStr,
+    },
+}
+
+#[derive(Debug)]
 pub struct Pattern {
     pub location: SourceLocation,
     pub kind: PatternKind,
@@ -147,15 +159,11 @@ pub struct Pattern {
 
 #[derive(Debug)]
 pub enum PatternKind {
-    Path(Box<Path>),
+    Place(Box<Place>),
     Integer(u128),
     Deconstructor {
         typ: Box<Type>,
         members: Box<[DeconstructorMember]>,
-    },
-    MemberAccess {
-        operand: Box<Expression>,
-        name: InternedStr,
     },
     Let {
         name: InternedStr,

@@ -4,7 +4,8 @@ use crate::{
     type_inference_tree::{BuiltinFunctionBody, FunctionId},
     typed_tree::{
         BinaryOperator, Expression, ExpressionKind, FunctionBody, IntegerValue, Pattern,
-        PatternKind, Statement, StatementKind, TypeKind, UnaryOperator, VariableId,
+        PatternKind, Place, PlaceKind, Statement, StatementKind, TypeKind, UnaryOperator,
+        VariableId,
     },
 };
 
@@ -54,17 +55,13 @@ pub fn interpret_function(
     }
 }
 
-pub fn interpret_expression(
+fn interpret_expression(
     expression: &Expression,
     typed_program: &TypedProgram,
     variables: &mut IdMap<VariableId, Value>,
 ) -> Value {
     match expression.kind {
-        ExpressionKind::Variable(id) => variables[id].clone(),
-
-        ExpressionKind::Function(_) => Value::Struct {
-            members: Box::new([]),
-        },
+        ExpressionKind::Place(ref place) => copy_place(place, typed_program, variables),
 
         ExpressionKind::Integer(value) => Value::Integer(value),
 
@@ -93,17 +90,6 @@ pub fn interpret_expression(
                 variables,
             )),
         },
-
-        ExpressionKind::StructMemberAccess {
-            ref operand,
-            member_index,
-        } => {
-            let Value::Struct { members } = interpret_expression(operand, typed_program, variables)
-            else {
-                unreachable!()
-            };
-            members[member_index].clone()
-        }
 
         ExpressionKind::Block {
             ref statements,
@@ -207,7 +193,7 @@ pub fn interpret_expression(
     }
 }
 
-pub fn interpret_statement(
+fn interpret_statement(
     statement: &Statement,
     typed_program: &TypedProgram,
     variables: &mut IdMap<VariableId, Value>,
@@ -222,23 +208,70 @@ pub fn interpret_statement(
             ref value,
         } => {
             let value = interpret_expression(value, typed_program, variables);
-            assign_pattern(pattern, value, typed_program, variables)
+            assign_pattern(pattern, value, variables);
         }
     }
 }
 
-pub fn assign_pattern(
-    pattern: &Pattern,
-    value: Value,
+fn copy_place(
+    place: &Place,
     typed_program: &TypedProgram,
     variables: &mut IdMap<VariableId, Value>,
-) {
-    match pattern.kind {
-        PatternKind::Variable(id) => {
-            variables.insert(id, value);
+) -> Value {
+    match place.kind {
+        PlaceKind::Variable(id) => variables[id].clone(),
+
+        PlaceKind::Function(_) => match typed_program.types[place.typ].kind {
+            TypeKind::FunctionItem(_) => Value::Struct {
+                members: Box::new([]),
+            },
+
+            _ => unreachable!(),
+        },
+
+        PlaceKind::Expression(ref expression) => {
+            interpret_expression(expression, typed_program, variables)
         }
 
-        PatternKind::Function(_) => unreachable!(),
+        PlaceKind::StructMemberAccess {
+            ref operand,
+            member_index,
+        } => {
+            let Value::Struct { members } = copy_place(operand, typed_program, variables) else {
+                unreachable!()
+            };
+            members[member_index].clone()
+        }
+    }
+}
+
+fn assignable_place<'a>(
+    place: &Place,
+    variables: &'a mut IdMap<VariableId, Value>,
+) -> &'a mut Value {
+    match place.kind {
+        PlaceKind::Variable(id) => &mut variables[id],
+
+        PlaceKind::Function(_) => unreachable!(),
+
+        PlaceKind::Expression(_) => unreachable!("cannot assign to expression"),
+
+        PlaceKind::StructMemberAccess {
+            ref operand,
+            member_index,
+        } => {
+            let Value::Struct { members } = assignable_place(operand, variables) else {
+                unreachable!()
+            };
+            &mut members[member_index]
+        }
+    }
+}
+
+fn assign_pattern(pattern: &Pattern, value: Value, variables: &mut IdMap<VariableId, Value>) {
+    match pattern.kind {
+        PatternKind::Place(ref place) => *assignable_place(place, variables) = value,
+
         PatternKind::Integer(_) => unreachable!(),
 
         PatternKind::StructDeconstructor {
@@ -251,7 +284,6 @@ pub fn assign_pattern(
                 assign_pattern(
                     &deconstructor_member.pattern,
                     members[deconstructor_member.member_index].clone(),
-                    typed_program,
                     variables,
                 );
             }
@@ -268,15 +300,7 @@ pub fn assign_pattern(
                 unreachable!()
             };
             assert_eq!(deconstructor_member.member_index, member_index);
-            assign_pattern(pattern, *member, typed_program, variables);
-        }
-
-        PatternKind::StructMemberAccess {
-            ref operand,
-            member_index: _,
-        } => {
-            let _operand = interpret_expression(operand, typed_program, variables);
-            unimplemented!("struct member assignment")
+            assign_pattern(pattern, *member, variables);
         }
 
         PatternKind::Let(id) => {

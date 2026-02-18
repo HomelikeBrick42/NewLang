@@ -78,8 +78,7 @@ pub struct Expression {
 
 #[derive(Debug)]
 pub enum ExpressionKind {
-    Variable(VariableId),
-    Function(FunctionId),
+    Place(Box<Place>),
     Integer(u128),
     Block {
         statements: Box<[Statement]>,
@@ -101,10 +100,6 @@ pub enum ExpressionKind {
         operand: Box<Expression>,
         arguments: Box<[Argument]>,
     },
-    MemberAccess {
-        operand: Box<Expression>,
-        name: InternedStr,
-    },
 }
 
 #[derive(Debug)]
@@ -125,6 +120,26 @@ pub enum ArgumentKind {
     Value(Box<Expression>),
 }
 
+
+#[derive(Debug)]
+pub struct Place {
+    pub location: SourceLocation,
+    pub typ: TypeId,
+    pub kind: PlaceKind,
+}
+
+#[derive(Debug)]
+pub enum PlaceKind {
+    Variable(VariableId),
+    Function(FunctionId),
+    Expression(Box<Expression>),
+    MemberAccess {
+        operand: Box<Place>,
+        name: InternedStr,
+    },
+}
+
+
 #[derive(Debug)]
 pub struct Pattern {
     pub location: SourceLocation,
@@ -134,15 +149,10 @@ pub struct Pattern {
 
 #[derive(Debug)]
 pub enum PatternKind {
-    Variable(VariableId),
-    Function(FunctionId),
+    Place(Box<Place>),
     Integer(u128),
     Deconstructor {
         members: Box<[DeconstructorMember]>,
-    },
-    MemberAccess {
-        operand: Box<Expression>,
-        name: InternedStr,
     },
     Let(VariableId),
 }

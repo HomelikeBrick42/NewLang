@@ -24,6 +24,8 @@ pub enum ValidatingErrorKind {
     ExpectedPattern,
     #[display("Expected type")]
     ExpectedType,
+    #[display("Expected place")]
+    ExpectedPlace,
     #[display("Expected path")]
     ExpectedPath,
 }
@@ -288,8 +290,10 @@ pub fn validate_expression(
                 close_parenthesis_token: _,
             } => return validate_expression(expression),
 
-            st::ExpressionKind::Name { .. } | st::ExpressionKind::PathAccess { .. } => {
-                ast::ExpressionKind::Path(Box::new(validate_path(expression)?))
+            st::ExpressionKind::Name { .. }
+            | st::ExpressionKind::PathAccess { .. }
+            | st::ExpressionKind::MemberAccess { .. } => {
+                ast::ExpressionKind::Place(Box::new(validate_place(expression)?))
             }
 
             st::ExpressionKind::Integer { integer_token } => {
@@ -416,20 +420,6 @@ pub fn validate_expression(
                     .collect::<Result<_, ValidatingError>>()?,
             },
 
-            st::ExpressionKind::MemberAccess {
-                operand,
-                dot_token: _,
-                name_token,
-            } => ast::ExpressionKind::MemberAccess {
-                operand: Box::new(validate_expression(operand)?),
-                name: {
-                    let TokenKind::Name(name) = name_token.kind else {
-                        unreachable!()
-                    };
-                    name
-                },
-            },
-
             st::ExpressionKind::Let { .. } => {
                 return Err(ValidatingError {
                     location,
@@ -465,8 +455,10 @@ pub fn validate_pattern(
                 close_parenthesis_token: _,
             } => return validate_pattern(expression),
 
-            st::ExpressionKind::Name { .. } | st::ExpressionKind::PathAccess { .. } => {
-                ast::PatternKind::Path(Box::new(validate_path(pattern)?))
+            st::ExpressionKind::Name { .. }
+            | st::ExpressionKind::PathAccess { .. }
+            | st::ExpressionKind::MemberAccess { .. } => {
+                ast::PatternKind::Place(Box::new(validate_place(pattern)?))
             }
 
             st::ExpressionKind::Integer { integer_token } => {
@@ -504,20 +496,6 @@ pub fn validate_pattern(
                         },
                     )
                     .collect::<Result<_, ValidatingError>>()?,
-            },
-
-            st::ExpressionKind::MemberAccess {
-                operand,
-                dot_token: _,
-                name_token,
-            } => ast::PatternKind::MemberAccess {
-                operand: Box::new(validate_expression(operand)?),
-                name: {
-                    let TokenKind::Name(name) = name_token.kind else {
-                        unreachable!()
-                    };
-                    name
-                },
             },
 
             st::ExpressionKind::Let {
@@ -578,6 +556,55 @@ pub fn validate_type(
                 return Err(ValidatingError {
                     location,
                     kind: ValidatingErrorKind::ExpectedType,
+                });
+            }
+        },
+    })
+}
+
+pub fn validate_place(
+    place @ &st::Expression { location, ref kind }: &st::Expression,
+) -> Result<ast::Place, ValidatingError> {
+    Ok(ast::Place {
+        location,
+        kind: match kind {
+            st::ExpressionKind::ParenthesizedExpression {
+                open_parenthesis_token: _,
+                expression,
+                close_parenthesis_token: _,
+            } => return validate_place(expression),
+
+            st::ExpressionKind::Name { .. } | st::ExpressionKind::PathAccess { .. } => {
+                ast::PlaceKind::Path(Box::new(validate_path(place)?))
+            }
+
+            st::ExpressionKind::MemberAccess {
+                operand,
+                dot_token: _,
+                name_token,
+            } => ast::PlaceKind::MemberAccess {
+                operand: Box::new(validate_place(operand)?),
+                name: {
+                    let TokenKind::Name(name) = name_token.kind else {
+                        unreachable!()
+                    };
+                    name
+                },
+            },
+
+            st::ExpressionKind::Integer { .. }
+            | st::ExpressionKind::Block { .. }
+            | st::ExpressionKind::Constructor { .. }
+            | st::ExpressionKind::UnaryOperator { .. }
+            | st::ExpressionKind::BinaryOperator { .. }
+            | st::ExpressionKind::Call { .. } => {
+                ast::PlaceKind::Expression(Box::new(validate_expression(place)?))
+            }
+
+            st::ExpressionKind::Let { .. } => {
+                return Err(ValidatingError {
+                    location,
+                    kind: ValidatingErrorKind::ExpectedPlace,
                 });
             }
         },

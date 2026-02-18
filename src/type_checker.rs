@@ -34,7 +34,7 @@ pub enum TypeCheckingErrorKind {
         right_typ: tt::TypeId,
         result_typ: tt::TypeId,
     },
-    ExpressionIsNotAssignable,
+    PlaceIsNotAssignable,
     PatternIsNotAssignable,
     CannotAccessMemberOfEnum,
 }
@@ -78,7 +78,7 @@ pub fn print_type_checking_errors(type_checked_program: &TypedProgram) {
                 eprintln!("{:?} {:?} {:?}", left_typ, right_typ, result_typ);
             }
 
-            TypeCheckingErrorKind::ExpressionIsNotAssignable => {
+            TypeCheckingErrorKind::PlaceIsNotAssignable => {
                 println!("Expression is not assignable");
             }
 
@@ -419,11 +419,17 @@ fn type_check_expression(
         location,
         typ,
         kind: match *kind {
-            ti::ExpressionKind::Variable(id) => {
-                tt::ExpressionKind::Variable(resolved_variables[id])
+            ti::ExpressionKind::Place(ref place) => {
+                tt::ExpressionKind::Place(Box::new(type_check_place(
+                    place,
+                    resolved_program,
+                    resolved_types,
+                    types,
+                    type_checking_functions,
+                    function_signatures,
+                    resolved_variables,
+                )?))
             }
-
-            ti::ExpressionKind::Function(id) => tt::ExpressionKind::Function(id),
 
             ti::ExpressionKind::Integer(value) => {
                 tt::ExpressionKind::Integer(match types[typ].kind {
@@ -697,38 +703,6 @@ fn type_check_expression(
                     value_arguments: value_arguments.into_boxed_slice(),
                 }
             }
-
-            ti::ExpressionKind::MemberAccess { ref operand, name } => {
-                let operand = Box::new(type_check_expression(
-                    operand,
-                    resolved_program,
-                    resolved_types,
-                    types,
-                    type_checking_functions,
-                    function_signatures,
-                    resolved_variables,
-                )?);
-                match types[operand.typ].kind {
-                    tt::TypeKind::Struct { ref members } => {
-                        tt::ExpressionKind::StructMemberAccess {
-                            operand,
-                            member_index: members
-                                .iter()
-                                .position(|member| member.name == name)
-                                .unwrap(),
-                        }
-                    }
-
-                    tt::TypeKind::Enum { .. } => {
-                        return Err(TypeCheckingError {
-                            location,
-                            kind: TypeCheckingErrorKind::CannotAccessMemberOfEnum,
-                        });
-                    }
-
-                    _ => unreachable!(),
-                }
-            }
         },
     })
 }
@@ -786,6 +760,72 @@ fn type_check_statement(
     })
 }
 
+fn type_check_place(
+    &ti::Place {
+        location,
+        typ,
+        ref kind,
+    }: &ti::Place,
+    resolved_program: &ResolvedProgram,
+    resolved_types: &mut IdMap<ti::TypeId, tt::TypeId>,
+    types: &mut IdVec<tt::TypeId, tt::Type>,
+    type_checking_functions: &mut IdMap<ti::FunctionId, ()>,
+    function_signatures: &mut IdMap<ti::FunctionId, tt::FunctionSignature>,
+    resolved_variables: &IdMap<ti::VariableId, tt::VariableId>,
+) -> Result<tt::Place, TypeCheckingError> {
+    let typ = type_check_type(typ, resolved_program, resolved_types, types)?;
+    Ok(tt::Place {
+        location,
+        typ,
+        kind: match *kind {
+            ti::PlaceKind::Variable(id) => tt::PlaceKind::Variable(resolved_variables[id]),
+            ti::PlaceKind::Function(id) => tt::PlaceKind::Function(id),
+
+            ti::PlaceKind::Expression(ref expression) => {
+                tt::PlaceKind::Expression(Box::new(type_check_expression(
+                    expression,
+                    resolved_program,
+                    resolved_types,
+                    types,
+                    type_checking_functions,
+                    function_signatures,
+                    resolved_variables,
+                )?))
+            }
+
+            ti::PlaceKind::MemberAccess { ref operand, name } => {
+                let operand = Box::new(type_check_place(
+                    operand,
+                    resolved_program,
+                    resolved_types,
+                    types,
+                    type_checking_functions,
+                    function_signatures,
+                    resolved_variables,
+                )?);
+                match types[operand.typ].kind {
+                    tt::TypeKind::Struct { ref members } => tt::PlaceKind::StructMemberAccess {
+                        operand,
+                        member_index: members
+                            .iter()
+                            .position(|member| member.name == name)
+                            .unwrap(),
+                    },
+
+                    tt::TypeKind::Enum { .. } => {
+                        return Err(TypeCheckingError {
+                            location,
+                            kind: TypeCheckingErrorKind::CannotAccessMemberOfEnum,
+                        });
+                    }
+
+                    _ => unreachable!(),
+                }
+            }
+        },
+    })
+}
+
 fn type_check_pattern(
     &ti::Pattern {
         location,
@@ -804,8 +844,17 @@ fn type_check_pattern(
         location,
         typ,
         kind: match *kind {
-            ti::PatternKind::Variable(id) => tt::PatternKind::Variable(resolved_variables[id]),
-            ti::PatternKind::Function(id) => tt::PatternKind::Function(id),
+            ti::PatternKind::Place(ref place) => {
+                tt::PatternKind::Place(Box::new(type_check_place(
+                    place,
+                    resolved_program,
+                    resolved_types,
+                    types,
+                    type_checking_functions,
+                    function_signatures,
+                    resolved_variables,
+                )?))
+            }
 
             ti::PatternKind::Integer(value) => tt::PatternKind::Integer(match types[typ].kind {
                 tt::TypeKind::Integer(integer_type_kind) => match integer_type_kind {
@@ -919,75 +968,29 @@ fn type_check_pattern(
                 _ => unreachable!(),
             },
 
-            ti::PatternKind::MemberAccess { ref operand, name } => {
-                let operand = Box::new(type_check_expression(
-                    operand,
-                    resolved_program,
-                    resolved_types,
-                    types,
-                    type_checking_functions,
-                    function_signatures,
-                    resolved_variables,
-                )?);
-                match types[operand.typ].kind {
-                    tt::TypeKind::Struct { ref members } => tt::PatternKind::StructMemberAccess {
-                        operand,
-                        member_index: members
-                            .iter()
-                            .position(|member| member.name == name)
-                            .unwrap(),
-                    },
-
-                    tt::TypeKind::Enum { .. } => {
-                        return Err(TypeCheckingError {
-                            location,
-                            kind: TypeCheckingErrorKind::CannotAccessMemberOfEnum,
-                        });
-                    }
-
-                    _ => unreachable!(),
-                }
-            }
-
             ti::PatternKind::Let(id) => tt::PatternKind::Let(resolved_variables[id]),
         },
     })
 }
 
-fn check_expression_assignable(
-    &tt::Expression {
+fn check_place_assignable(
+    &tt::Place {
         location,
         typ: _,
         ref kind,
-    }: &tt::Expression,
+    }: &tt::Place,
 ) -> Result<(), TypeCheckingError> {
     let assignable = match *kind {
-        tt::ExpressionKind::Variable(_) => true,
-        tt::ExpressionKind::Function(_) => false,
-        tt::ExpressionKind::Integer(_) => false,
-        tt::ExpressionKind::StructConstructor { .. } => false,
-        tt::ExpressionKind::EnumConstructor { .. } => false,
-        tt::ExpressionKind::StructMemberAccess {
+        tt::PlaceKind::Variable(_) => true,
+        tt::PlaceKind::Function(_) => false,
+        tt::PlaceKind::Expression(_) => false,
+        tt::PlaceKind::StructMemberAccess {
             ref operand,
             member_index: _,
         } => {
-            check_expression_assignable(operand)?;
+            check_place_assignable(operand)?;
             true
         }
-        tt::ExpressionKind::Block {
-            statements: _,
-            last_expression: _,
-        } => false,
-        tt::ExpressionKind::Unary {
-            operator: _,
-            operand: _,
-        } => false,
-        tt::ExpressionKind::Binary {
-            left: _,
-            operator: _,
-            right: _,
-        } => false,
-        tt::ExpressionKind::Call { .. } => false,
     };
 
     if assignable {
@@ -995,7 +998,7 @@ fn check_expression_assignable(
     } else {
         Err(TypeCheckingError {
             location,
-            kind: TypeCheckingErrorKind::PatternIsNotAssignable,
+            kind: TypeCheckingErrorKind::PlaceIsNotAssignable,
         })
     }
 }
@@ -1008,8 +1011,10 @@ fn check_pattern_assignable(
     }: &tt::Pattern,
 ) -> Result<(), TypeCheckingError> {
     let assignable = match *kind {
-        tt::PatternKind::Variable(_) => true,
-        tt::PatternKind::Function(_) => false,
+        tt::PatternKind::Place(ref place) => {
+            check_place_assignable(place)?;
+            true
+        }
         tt::PatternKind::Integer(_) => false,
         tt::PatternKind::StructDeconstructor { ref members } => {
             members
@@ -1019,13 +1024,6 @@ fn check_pattern_assignable(
         }
         tt::PatternKind::EnumDeconstructor { ref member } => {
             check_pattern_assignable(&member.pattern)?;
-            true
-        }
-        tt::PatternKind::StructMemberAccess {
-            ref operand,
-            member_index: _,
-        } => {
-            check_expression_assignable(operand)?;
             true
         }
         tt::PatternKind::Let(_) => true,

@@ -85,18 +85,13 @@ pub struct Expression {
 
 #[derive(Debug)]
 pub enum ExpressionKind {
-    Variable(VariableId),
-    Function(FunctionId),
+    Place(Box<Place>),
     Integer(IntegerValue),
     StructConstructor {
         members: Box<[ConstructorMember]>,
     },
     EnumConstructor {
         member: Box<ConstructorMember>,
-    },
-    StructMemberAccess {
-        operand: Box<Expression>,
-        member_index: usize,
     },
     Block {
         statements: Box<[Statement]>,
@@ -144,6 +139,24 @@ pub enum BinaryOperator {
 }
 
 #[derive(Debug)]
+pub struct Place {
+    pub location: SourceLocation,
+    pub typ: TypeId,
+    pub kind: PlaceKind,
+}
+
+#[derive(Debug)]
+pub enum PlaceKind {
+    Variable(VariableId),
+    Function(FunctionId),
+    Expression(Box<Expression>),
+    StructMemberAccess {
+        operand: Box<Place>,
+        member_index: usize,
+    },
+}
+
+#[derive(Debug)]
 pub struct Pattern {
     pub location: SourceLocation,
     pub typ: TypeId,
@@ -152,19 +165,10 @@ pub struct Pattern {
 
 #[derive(Debug)]
 pub enum PatternKind {
-    Variable(VariableId),
-    Function(FunctionId),
+    Place(Box<Place>),
     Integer(IntegerValue),
-    StructDeconstructor {
-        members: Box<[DeconstructorMember]>,
-    },
-    EnumDeconstructor {
-        member: Box<DeconstructorMember>,
-    },
-    StructMemberAccess {
-        operand: Box<Expression>,
-        member_index: usize,
-    },
+    StructDeconstructor { members: Box<[DeconstructorMember]> },
+    EnumDeconstructor { member: Box<DeconstructorMember> },
     Let(VariableId),
 }
 

@@ -4,7 +4,8 @@ use crate::{
     type_inference_tree::{
         ArgumentKind, BuiltinFunctionBody, Expression, ExpressionKind, FunctionBody, FunctionId,
         FunctionParameterKind, FunctionSignature, InferFunctionParameter, InferTypeKind, Pattern,
-        PatternKind, PrettyPrintType, Statement, StatementKind, Type, TypeId, TypeKind,
+        PatternKind, Place, PlaceKind, PrettyPrintType, Statement, StatementKind, Type, TypeId,
+        TypeKind,
     },
 };
 use std::collections::hash_map::Entry;
@@ -73,7 +74,7 @@ pub fn infer_program(
     errors
 }
 
-pub fn infer_expression(
+fn infer_expression(
     expression: &Expression,
     expected_type: TypeId,
     function_signatures: &IdSlice<FunctionId, FunctionSignature>,
@@ -89,8 +90,10 @@ pub fn infer_expression(
         errors,
     );
     match expression.kind {
-        ExpressionKind::Variable(_) => {}
-        ExpressionKind::Function(_) => {}
+        ExpressionKind::Place(ref place) => {
+            infer_place(place, expected_type, function_signatures, types, errors);
+        }
+
         ExpressionKind::Integer(_) => {}
 
         ExpressionKind::Block {
@@ -195,27 +198,10 @@ pub fn infer_expression(
                 }
             }
         }
-
-        ExpressionKind::MemberAccess { ref operand, name } => {
-            let struct_like_type = types.push(Type {
-                location: expression.location,
-                name: None,
-                kind: TypeKind::Infer(InferTypeKind::StructLike {
-                    members: [(name, expression.typ)].into_iter().collect(),
-                }),
-            });
-            infer_expression(
-                operand,
-                struct_like_type,
-                function_signatures,
-                types,
-                errors,
-            );
-        }
     }
 }
 
-pub fn infer_statement(
+fn infer_statement(
     statement: &Statement,
     function_signatures: &IdSlice<FunctionId, FunctionSignature>,
     types: &mut IdVec<TypeId, Type>,
@@ -242,7 +228,55 @@ pub fn infer_statement(
     }
 }
 
-pub fn infer_pattern(
+fn infer_place(
+    place: &Place,
+    expected_type: TypeId,
+    function_signatures: &IdSlice<FunctionId, FunctionSignature>,
+    types: &mut IdVec<TypeId, Type>,
+    errors: &mut Vec<InferringError>,
+) {
+    unify_types(
+        place.location,
+        expected_type,
+        place.typ,
+        function_signatures,
+        types,
+        errors,
+    );
+    match place.kind {
+        PlaceKind::Variable(_) => {}
+        PlaceKind::Function(_) => {}
+
+        PlaceKind::Expression(ref expression) => {
+            infer_expression(
+                expression,
+                expected_type,
+                function_signatures,
+                types,
+                errors,
+            );
+        }
+
+        PlaceKind::MemberAccess { ref operand, name } => {
+            let struct_like_type = types.push(Type {
+                location: place.location,
+                name: None,
+                kind: TypeKind::Infer(InferTypeKind::StructLike {
+                    members: [(name, place.typ)].into_iter().collect(),
+                }),
+            });
+            infer_place(
+                operand,
+                struct_like_type,
+                function_signatures,
+                types,
+                errors,
+            );
+        }
+    }
+}
+
+fn infer_pattern(
     pattern: &Pattern,
     expected_type: TypeId,
     function_signatures: &IdSlice<FunctionId, FunctionSignature>,
@@ -258,8 +292,10 @@ pub fn infer_pattern(
         errors,
     );
     match pattern.kind {
-        PatternKind::Variable(_) => {}
-        PatternKind::Function(_) => {}
+        PatternKind::Place(ref place) => {
+            infer_place(place, expected_type, function_signatures, types, errors);
+        }
+
         PatternKind::Integer(_) => {}
 
         PatternKind::Deconstructor { ref members } => {
@@ -286,23 +322,6 @@ pub fn infer_pattern(
                 pattern.location,
                 struct_like_type,
                 pattern.typ,
-                function_signatures,
-                types,
-                errors,
-            );
-        }
-
-        PatternKind::MemberAccess { ref operand, name } => {
-            let struct_like_type = types.push(Type {
-                location: pattern.location,
-                name: None,
-                kind: TypeKind::Infer(InferTypeKind::StructLike {
-                    members: [(name, pattern.typ)].into_iter().collect(),
-                }),
-            });
-            infer_expression(
-                operand,
-                struct_like_type,
                 function_signatures,
                 types,
                 errors,
