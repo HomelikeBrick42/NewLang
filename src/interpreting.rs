@@ -192,15 +192,14 @@ pub fn interpret_expression(
         } => {
             let function_type = operand.typ;
             let _operand = interpret_expression(operand, typed_program, variables);
+            let value_arguments = value_arguments
+                .iter()
+                .map(|argument| interpret_expression(argument, typed_program, variables))
+                .collect();
             match typed_program.types[function_type].kind {
-                TypeKind::FunctionItem(id) => interpret_function(
-                    id,
-                    value_arguments
-                        .iter()
-                        .map(|argument| interpret_expression(argument, typed_program, variables))
-                        .collect(),
-                    typed_program,
-                ),
+                TypeKind::FunctionItem(id) => {
+                    interpret_function(id, value_arguments, typed_program)
+                }
 
                 _ => unreachable!(),
             }
