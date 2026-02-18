@@ -4,7 +4,7 @@ use crate::{
     type_inference_tree::{
         ArgumentKind, BuiltinFunctionBody, Expression, ExpressionKind, FunctionBody, FunctionId,
         FunctionParameterKind, FunctionSignature, InferFunctionParameter, InferTypeKind, Pattern,
-        PatternKind, PrettyPrintError, Statement, StatementKind, Type, TypeId, TypeKind,
+        PatternKind, PrettyPrintType, Statement, StatementKind, Type, TypeId, TypeKind,
     },
 };
 use std::collections::hash_map::Entry;
@@ -27,11 +27,11 @@ pub fn print_inferring_errors(errors: &[InferringError], types: &IdSlice<TypeId,
             InferringErrorKind::UnificationError { expected, got } => {
                 eprintln!(
                     "Expected type {} but got type {}",
-                    PrettyPrintError {
+                    PrettyPrintType {
                         typ: expected,
                         types
                     },
-                    PrettyPrintError { typ: got, types }
+                    PrettyPrintType { typ: got, types }
                 );
                 eprintln!(
                     "NOTE: Expected type was created at {}",

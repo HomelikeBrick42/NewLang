@@ -1,9 +1,10 @@
 use crate::{
-    idvec::{IdVec, new_id_type},
+    idvec::{IdSlice, IdVec, new_id_type},
     interning::InternedStr,
     lexing::SourceLocation,
     type_inference_tree::{BuiltinFunctionBody, FunctionId, IntegerTypeKind},
 };
+use std::fmt::Display;
 
 #[derive(Debug)]
 pub struct FunctionSignature {
@@ -116,7 +117,7 @@ pub enum ExpressionKind {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum IntegerValue {
     I64(i64),
 }
@@ -128,13 +129,13 @@ pub struct ConstructorMember {
     pub value: Expression,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum UnaryOperator {
     Identity,
     NegateI64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum BinaryOperator {
     AddI64,
     SubtractI64,
@@ -172,4 +173,32 @@ pub struct DeconstructorMember {
     pub location: SourceLocation,
     pub member_index: usize,
     pub pattern: Pattern,
+}
+
+pub struct PrettyPrintType<'a> {
+    pub typ: TypeId,
+    pub types: &'a IdSlice<TypeId, Type>,
+}
+
+impl Display for PrettyPrintType<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let typ = &self.types[self.typ];
+        match typ.kind {
+            TypeKind::Resolving => write!(f, "_"),
+            TypeKind::Runtime => write!(f, "Runtime"),
+            TypeKind::Integer(ref integer_type) => match *integer_type {
+                IntegerTypeKind::I64 => write!(f, "I64"),
+            },
+            TypeKind::FunctionItem(_) => {
+                write!(f, "{{{{function item for '{}'}}}}", typ.name.unwrap())
+            }
+            TypeKind::Struct { members: _ } => {
+                write!(f, "{}", typ.name.unwrap())
+            }
+            TypeKind::Enum { members: _ } => {
+                write!(f, "{}", typ.name.unwrap())
+            }
+            TypeKind::Generic => write!(f, "{}", typ.name.unwrap()),
+        }
+    }
 }

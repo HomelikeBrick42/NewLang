@@ -94,11 +94,21 @@ pub fn print_type_checking_errors(type_checked_program: &TypedProgram) {
 }
 
 #[derive(Debug)]
+pub struct Builtins {
+    pub runtime_type: Option<tt::TypeId>,
+    pub i64_type: Option<tt::TypeId>,
+    pub unit_type: Option<tt::TypeId>,
+    pub bool_type: Option<tt::TypeId>,
+}
+
+#[derive(Debug)]
 pub struct TypedProgram {
     pub types: IdVec<tt::TypeId, tt::Type>,
 
     pub function_signatures: IdMap<ti::FunctionId, tt::FunctionSignature>,
     pub function_bodies: IdMap<ti::FunctionId, tt::FunctionBody>,
+
+    pub builtins: Builtins,
 
     #[debug(ignore)]
     pub errors: Vec<TypeCheckingError>,
@@ -156,6 +166,24 @@ pub fn type_check_program(resolved_program: &ResolvedProgram) -> TypedProgram {
         types,
         function_signatures,
         function_bodies,
+        builtins: Builtins {
+            runtime_type: resolved_program
+                .builtins
+                .runtime_type
+                .map(|typ| resolved_types[typ]),
+            i64_type: resolved_program
+                .builtins
+                .i64_type
+                .map(|typ| resolved_types[typ]),
+            unit_type: resolved_program
+                .builtins
+                .unit_type
+                .map(|typ| resolved_types[typ]),
+            bool_type: resolved_program
+                .builtins
+                .bool_type
+                .map(|typ| resolved_types[typ]),
+        },
         errors,
     }
 }

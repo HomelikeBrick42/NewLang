@@ -208,12 +208,12 @@ pub struct TypeMember {
     pub typ: TypeId,
 }
 
-pub struct PrettyPrintError<'a> {
+pub struct PrettyPrintType<'a> {
     pub typ: TypeId,
     pub types: &'a IdSlice<TypeId, Type>,
 }
 
-impl Display for PrettyPrintError<'_> {
+impl Display for PrettyPrintType<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut typ = &self.types[self.typ];
         loop {
@@ -235,7 +235,7 @@ impl Display for PrettyPrintError<'_> {
                                 InferFunctionParameter::Value { typ } => write!(
                                     f,
                                     " _: {}",
-                                    PrettyPrintError {
+                                    PrettyPrintType {
                                         typ,
                                         types: self.types
                                     }
@@ -245,7 +245,7 @@ impl Display for PrettyPrintError<'_> {
                         write!(
                             f,
                             ") -> {}",
-                            PrettyPrintError {
+                            PrettyPrintType {
                                 typ: return_type,
                                 types: self.types
                             }
@@ -260,7 +260,7 @@ impl Display for PrettyPrintError<'_> {
                             write!(
                                 f,
                                 " {name}: {}",
-                                PrettyPrintError {
+                                PrettyPrintType {
                                     typ,
                                     types: self.types
                                 }
