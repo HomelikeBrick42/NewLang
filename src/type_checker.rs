@@ -180,6 +180,7 @@ pub fn type_check_program(resolved_program: &ResolvedProgram) -> TypedProgram {
             &mut evaluating_consts,
             &mut resolved_const_values,
             &mut const_values,
+            false,
         ) {
             Ok(()) => {}
             Err(error) => {
@@ -388,6 +389,7 @@ fn type_check_function_body(
     evaluating_consts: &mut IdMap<ti::ConstId, ()>,
     resolved_const_values: &mut IdMap<ti::ConstId, tt::ConstId>,
     const_values: &mut IdVec<tt::ConstId, Value>,
+    fully_type_check_body: bool,
 ) -> Result<(), TypeCheckingError> {
     type_check_function_signature(
         function,
@@ -444,19 +446,36 @@ fn type_check_function_body(
                     .iter()
                     .flat_map(|&variable| variable.map(|id| resolved_variables[id]))
                     .collect(),
-                expression: Box::new(type_check_expression(
-                    expression,
-                    resolved_program,
-                    resolved_types,
-                    types,
-                    type_checking_functions,
-                    function_signatures,
-                    function_bodies,
-                    evaluating_consts,
-                    resolved_const_values,
-                    const_values,
-                    &resolved_variables,
-                )?),
+                expression: {
+                    let expression = Box::new(type_check_expression(
+                        expression,
+                        resolved_program,
+                        resolved_types,
+                        types,
+                        type_checking_functions,
+                        function_signatures,
+                        function_bodies,
+                        evaluating_consts,
+                        resolved_const_values,
+                        const_values,
+                        &resolved_variables,
+                    )?);
+                    if fully_type_check_body {
+                        fully_type_check_expression(
+                            &expression,
+                            resolved_program,
+                            resolved_types,
+                            types,
+                            type_checking_functions,
+                            function_signatures,
+                            function_bodies,
+                            evaluating_consts,
+                            resolved_const_values,
+                            const_values,
+                        )?;
+                    }
+                    expression
+                },
             }
         }
     };
@@ -1508,6 +1527,7 @@ fn fully_type_check_place(
                 evaluating_consts,
                 resolved_const_values,
                 const_values,
+                true,
             )?;
         }
 

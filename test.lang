@@ -18,3 +18,15 @@ fn main(runtime: core::Runtime) {
 
     let b = core::true
 }
+
+const x: core::Unit = foo()
+
+fn bar() {
+    x
+}
+
+fn foo() {
+    bar()
+}
+
+fn bar() {}
