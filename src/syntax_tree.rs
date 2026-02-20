@@ -44,6 +44,12 @@ pub enum ItemKind {
         name_token: Token,
         equals_type: Option<Box<EqualsType>>,
     },
+    Const {
+        const_token: Token,
+        name_token: Token,
+        colon_type: Box<ColonType>,
+        equals_value: Option<Box<EqualsValue>>,
+    },
 }
 
 #[derive(Debug)]
@@ -92,6 +98,12 @@ pub struct Member {
 pub struct EqualsType {
     pub equals_token: Token,
     pub typ: Expression,
+}
+
+#[derive(Debug)]
+pub struct EqualsValue {
+    pub equals_token: Token,
+    pub value: Expression,
 }
 
 #[derive(Debug)]

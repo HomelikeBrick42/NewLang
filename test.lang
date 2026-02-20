@@ -16,5 +16,5 @@ fn main(runtime: core::Runtime) {
     Test { value: let other_name } = t
     core::print_i64(other_name / 2, runtime)
 
-    let true = core::Bool { true: {} }
+    let b = core::true
 }

@@ -1,11 +1,10 @@
 use crate::{
-    idvec::IdMap,
-    type_checker::TypedProgram,
+    idvec::{IdMap, IdSlice},
     type_inference_tree::{BuiltinFunctionBody, FunctionId},
     typed_tree::{
-        BinaryOperator, Expression, ExpressionKind, FunctionBody, IntegerValue, Pattern,
-        PatternKind, Place, PlaceKind, Statement, StatementKind, TypeKind, UnaryOperator,
-        VariableId,
+        BinaryOperator, ConstId, Expression, ExpressionKind, FunctionBody, FunctionSignature,
+        Pattern, PatternKind, Place, PlaceKind, Statement, StatementKind, Type, TypeId, TypeKind,
+        UnaryOperator, VariableId,
     },
 };
 
@@ -21,13 +20,21 @@ pub enum Value {
     },
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum IntegerValue {
+    I64(i64),
+}
+
 pub fn interpret_function(
     function: FunctionId,
     value_arguments: Box<[Value]>,
-    typed_program: &TypedProgram,
+    types: &IdSlice<TypeId, Type>,
+    function_signatures: &IdMap<FunctionId, FunctionSignature>,
+    function_bodies: &IdMap<FunctionId, FunctionBody>,
+    const_values: &IdSlice<ConstId, Value>,
 ) -> Value {
     let mut variables = IdMap::new();
-    match typed_program.function_bodies[function] {
+    match function_bodies[function] {
         FunctionBody::Builtin(builtin_function_body) => match builtin_function_body {
             BuiltinFunctionBody::PrintI64 => {
                 let [Value::Integer(IntegerValue::I64(value)), _] = *value_arguments else {
@@ -50,20 +57,35 @@ pub fn interpret_function(
             for (&variable, value) in value_parameter_variables.iter().zip(value_arguments) {
                 variables.insert(variable, value);
             }
-            interpret_expression(expression, typed_program, &mut variables)
+            interpret_expression(
+                expression,
+                types,
+                function_signatures,
+                function_bodies,
+                const_values,
+                &mut variables,
+            )
         }
     }
 }
 
-fn interpret_expression(
+pub fn interpret_expression(
     expression: &Expression,
-    typed_program: &TypedProgram,
+    types: &IdSlice<TypeId, Type>,
+    function_signatures: &IdMap<FunctionId, FunctionSignature>,
+    function_bodies: &IdMap<FunctionId, FunctionBody>,
+    const_values: &IdSlice<ConstId, Value>,
     variables: &mut IdMap<VariableId, Value>,
 ) -> Value {
     match expression.kind {
-        ExpressionKind::Place(ref place) => copy_place(place, typed_program, variables),
-
-        ExpressionKind::Integer(value) => Value::Integer(value),
+        ExpressionKind::Place(ref place) => copy_place(
+            place,
+            types,
+            function_signatures,
+            function_bodies,
+            const_values,
+            variables,
+        ),
 
         ExpressionKind::StructConstructor {
             members: ref constructor_members,
@@ -76,8 +98,14 @@ fn interpret_expression(
             ]
             .into_boxed_slice();
             for member in constructor_members {
-                members[member.member_index] =
-                    interpret_expression(&member.value, typed_program, variables);
+                members[member.member_index] = interpret_expression(
+                    &member.value,
+                    types,
+                    function_signatures,
+                    function_bodies,
+                    const_values,
+                    variables,
+                );
             }
             Value::Struct { members }
         }
@@ -86,7 +114,10 @@ fn interpret_expression(
             member_index: member.member_index,
             member: Box::new(interpret_expression(
                 &member.value,
-                typed_program,
+                types,
+                function_signatures,
+                function_bodies,
+                const_values,
                 variables,
             )),
         },
@@ -96,16 +127,37 @@ fn interpret_expression(
             ref last_expression,
         } => {
             for statement in statements {
-                interpret_statement(statement, typed_program, variables);
+                interpret_statement(
+                    statement,
+                    types,
+                    function_signatures,
+                    function_bodies,
+                    const_values,
+                    variables,
+                );
             }
-            interpret_expression(last_expression, typed_program, variables)
+            interpret_expression(
+                last_expression,
+                types,
+                function_signatures,
+                function_bodies,
+                const_values,
+                variables,
+            )
         }
 
         ExpressionKind::Unary {
             operator,
             ref operand,
         } => {
-            let operand = interpret_expression(operand, typed_program, variables);
+            let operand = interpret_expression(
+                operand,
+                types,
+                function_signatures,
+                function_bodies,
+                const_values,
+                variables,
+            );
             match operator {
                 UnaryOperator::Identity => operand,
 
@@ -123,8 +175,22 @@ fn interpret_expression(
             operator,
             ref right,
         } => {
-            let left = interpret_expression(left, typed_program, variables);
-            let right = interpret_expression(right, typed_program, variables);
+            let left = interpret_expression(
+                left,
+                types,
+                function_signatures,
+                function_bodies,
+                const_values,
+                variables,
+            );
+            let right = interpret_expression(
+                right,
+                types,
+                function_signatures,
+                function_bodies,
+                const_values,
+                variables,
+            );
             match operator {
                 BinaryOperator::AddI64 => {
                     let Value::Integer(IntegerValue::I64(a)) = left else {
@@ -177,15 +243,36 @@ fn interpret_expression(
             ref value_arguments,
         } => {
             let function_type = operand.typ;
-            let _operand = interpret_expression(operand, typed_program, variables);
+            let _operand = interpret_expression(
+                operand,
+                types,
+                function_signatures,
+                function_bodies,
+                const_values,
+                variables,
+            );
             let value_arguments = value_arguments
                 .iter()
-                .map(|argument| interpret_expression(argument, typed_program, variables))
+                .map(|argument| {
+                    interpret_expression(
+                        argument,
+                        types,
+                        function_signatures,
+                        function_bodies,
+                        const_values,
+                        variables,
+                    )
+                })
                 .collect();
-            match typed_program.types[function_type].kind {
-                TypeKind::FunctionItem(id) => {
-                    interpret_function(id, value_arguments, typed_program)
-                }
+            match types[function_type].kind {
+                TypeKind::FunctionItem(id) => interpret_function(
+                    id,
+                    value_arguments,
+                    types,
+                    function_signatures,
+                    function_bodies,
+                    const_values,
+                ),
 
                 _ => unreachable!(),
             }
@@ -195,19 +282,36 @@ fn interpret_expression(
 
 fn interpret_statement(
     statement: &Statement,
-    typed_program: &TypedProgram,
+    types: &IdSlice<TypeId, Type>,
+    function_signatures: &IdMap<FunctionId, FunctionSignature>,
+    function_bodies: &IdMap<FunctionId, FunctionBody>,
+    const_values: &IdSlice<ConstId, Value>,
     variables: &mut IdMap<VariableId, Value>,
 ) {
     match statement.kind {
         StatementKind::Expression(ref expression) => {
-            interpret_expression(expression, typed_program, variables);
+            interpret_expression(
+                expression,
+                types,
+                function_signatures,
+                function_bodies,
+                const_values,
+                variables,
+            );
         }
 
         StatementKind::Assignment {
             ref pattern,
             ref value,
         } => {
-            let value = interpret_expression(value, typed_program, variables);
+            let value = interpret_expression(
+                value,
+                types,
+                function_signatures,
+                function_bodies,
+                const_values,
+                variables,
+            );
             assign_pattern(pattern, value, variables);
         }
     }
@@ -215,13 +319,17 @@ fn interpret_statement(
 
 fn copy_place(
     place: &Place,
-    typed_program: &TypedProgram,
+    types: &IdSlice<TypeId, Type>,
+    function_signatures: &IdMap<FunctionId, FunctionSignature>,
+    function_bodies: &IdMap<FunctionId, FunctionBody>,
+    const_values: &IdSlice<ConstId, Value>,
     variables: &mut IdMap<VariableId, Value>,
 ) -> Value {
     match place.kind {
         PlaceKind::Variable(id) => variables[id].clone(),
+        PlaceKind::Const(id) => const_values[id].clone(),
 
-        PlaceKind::Function(_) => match typed_program.types[place.typ].kind {
+        PlaceKind::Function(_) => match types[place.typ].kind {
             TypeKind::FunctionItem(_) => Value::Struct {
                 members: Box::new([]),
             },
@@ -229,15 +337,27 @@ fn copy_place(
             _ => unreachable!(),
         },
 
-        PlaceKind::Expression(ref expression) => {
-            interpret_expression(expression, typed_program, variables)
-        }
+        PlaceKind::Expression(ref expression) => interpret_expression(
+            expression,
+            types,
+            function_signatures,
+            function_bodies,
+            const_values,
+            variables,
+        ),
 
         PlaceKind::StructMemberAccess {
             ref operand,
             member_index,
         } => {
-            let Value::Struct { members } = copy_place(operand, typed_program, variables) else {
+            let Value::Struct { members } = copy_place(
+                operand,
+                types,
+                function_signatures,
+                function_bodies,
+                const_values,
+                variables,
+            ) else {
                 unreachable!()
             };
             members[member_index].clone()
@@ -253,6 +373,7 @@ fn assignable_place<'a>(
         PlaceKind::Variable(id) => &mut variables[id],
 
         PlaceKind::Function(_) => unreachable!(),
+        PlaceKind::Const(_) => unreachable!(),
 
         PlaceKind::Expression(_) => unreachable!("cannot assign to expression"),
 
@@ -271,8 +392,6 @@ fn assignable_place<'a>(
 fn assign_pattern(pattern: &Pattern, value: Value, variables: &mut IdMap<VariableId, Value>) {
     match pattern.kind {
         PatternKind::Place(ref place) => *assignable_place(place, variables) = value,
-
-        PatternKind::Integer(_) => unreachable!(),
 
         PatternKind::StructDeconstructor {
             members: ref deconstructor_members,

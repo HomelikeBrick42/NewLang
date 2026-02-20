@@ -1,7 +1,10 @@
+#![expect(clippy::too_many_arguments)]
+
 use crate::{
     ast,
     idvec::{IdMap, IdVec},
     interning::InternedStr,
+    interpreting::{IntegerValue, Value, interpret_expression},
     lexing::SourceLocation,
     resolving::ResolvedProgram,
     type_inference_tree as ti, typed_tree as tt,
@@ -37,9 +40,13 @@ pub enum TypeCheckingErrorKind {
     PlaceIsNotAssignable,
     PatternIsNotAssignable,
     CannotAccessMemberOfEnum,
+    CannotInferType(ti::TypeId),
 }
 
-pub fn print_type_checking_errors(type_checked_program: &TypedProgram) {
+pub fn print_type_checking_errors(
+    type_checked_program: &TypedProgram,
+    resolved_program: &ResolvedProgram,
+) {
     for error in &type_checked_program.errors {
         eprint!("{}: ", error.location);
         match error.kind {
@@ -79,15 +86,25 @@ pub fn print_type_checking_errors(type_checked_program: &TypedProgram) {
             }
 
             TypeCheckingErrorKind::PlaceIsNotAssignable => {
-                println!("Expression is not assignable");
+                eprintln!("Expression is not assignable");
             }
 
             TypeCheckingErrorKind::PatternIsNotAssignable => {
-                println!("Pattern is not assignable");
+                eprintln!("Pattern is not assignable");
             }
 
             TypeCheckingErrorKind::CannotAccessMemberOfEnum => {
-                println!("Cannot access member of enum");
+                eprintln!("Cannot access member of enum");
+            }
+
+            TypeCheckingErrorKind::CannotInferType(typ) => {
+                eprintln!(
+                    "Could not infer type, only got as far as {}",
+                    ti::PrettyPrintType {
+                        typ,
+                        types: &resolved_program.types
+                    }
+                );
             }
         }
     }
@@ -108,6 +125,8 @@ pub struct TypedProgram {
     pub function_signatures: IdMap<ti::FunctionId, tt::FunctionSignature>,
     pub function_bodies: IdMap<ti::FunctionId, tt::FunctionBody>,
 
+    pub const_values: IdVec<tt::ConstId, Value>,
+
     pub builtins: Builtins,
 
     #[debug(ignore)]
@@ -120,6 +139,9 @@ pub fn type_check_program(resolved_program: &ResolvedProgram) -> TypedProgram {
     let mut type_checking_functions = IdMap::new();
     let mut function_signatures = IdMap::new();
     let mut function_bodies = IdMap::new();
+    let mut evaluating_consts = IdMap::new();
+    let mut resolved_const_values = IdMap::new();
+    let mut const_values = IdVec::new();
     let mut errors = vec![];
 
     for (id, _) in resolved_program.types.iter() {
@@ -138,6 +160,7 @@ pub fn type_check_program(resolved_program: &ResolvedProgram) -> TypedProgram {
             &mut types,
             &mut type_checking_functions,
             &mut function_signatures,
+            &mut function_bodies,
         ) {
             Ok(()) => {}
             Err(error) => {
@@ -154,8 +177,30 @@ pub fn type_check_program(resolved_program: &ResolvedProgram) -> TypedProgram {
             &mut type_checking_functions,
             &mut function_signatures,
             &mut function_bodies,
+            &mut evaluating_consts,
+            &mut resolved_const_values,
+            &mut const_values,
         ) {
             Ok(()) => {}
+            Err(error) => {
+                errors.push(error);
+            }
+        }
+    }
+    for (id, _) in resolved_program.consts.iter() {
+        match type_check_const(
+            id,
+            resolved_program,
+            &mut resolved_types,
+            &mut types,
+            &mut type_checking_functions,
+            &mut function_signatures,
+            &mut function_bodies,
+            &mut evaluating_consts,
+            &mut resolved_const_values,
+            &mut const_values,
+        ) {
+            Ok(_) => {}
             Err(error) => {
                 errors.push(error);
             }
@@ -166,6 +211,7 @@ pub fn type_check_program(resolved_program: &ResolvedProgram) -> TypedProgram {
         types,
         function_signatures,
         function_bodies,
+        const_values,
         builtins: Builtins {
             runtime_type: resolved_program
                 .builtins
@@ -210,8 +256,18 @@ fn type_check_type(
     });
     resolved_types.insert(typ, id);
     types[id].kind = match resolved_program.types[typ].kind {
-        ti::TypeKind::Resolving | ti::TypeKind::Infer(_) | ti::TypeKind::Inferred(_) => {
-            unreachable!()
+        ti::TypeKind::Resolving | ti::TypeKind::Inferred(_) => {
+            unreachable!(
+                "{}: {:?}",
+                resolved_program.types[typ].location, resolved_program.types[typ].kind
+            )
+        }
+
+        ti::TypeKind::Infer(_) => {
+            return Err(TypeCheckingError {
+                location: resolved_program.types[typ].location,
+                kind: TypeCheckingErrorKind::CannotInferType(typ),
+            });
         }
 
         ti::TypeKind::Runtime => tt::TypeKind::Runtime,
@@ -270,6 +326,7 @@ fn type_check_function_signature(
     types: &mut IdVec<tt::TypeId, tt::Type>,
     type_checking_functions: &mut IdMap<ti::FunctionId, ()>,
     function_signatures: &mut IdMap<ti::FunctionId, tt::FunctionSignature>,
+    #[expect(unused)] function_bodies: &mut IdMap<ti::FunctionId, tt::FunctionBody>,
 ) -> Result<(), TypeCheckingError> {
     if function_signatures.contains(function) {
         return Ok(());
@@ -328,6 +385,9 @@ fn type_check_function_body(
     type_checking_functions: &mut IdMap<ti::FunctionId, ()>,
     function_signatures: &mut IdMap<ti::FunctionId, tt::FunctionSignature>,
     function_bodies: &mut IdMap<ti::FunctionId, tt::FunctionBody>,
+    evaluating_consts: &mut IdMap<ti::ConstId, ()>,
+    resolved_const_values: &mut IdMap<ti::ConstId, tt::ConstId>,
+    const_values: &mut IdVec<tt::ConstId, Value>,
 ) -> Result<(), TypeCheckingError> {
     type_check_function_signature(
         function,
@@ -336,6 +396,7 @@ fn type_check_function_body(
         types,
         type_checking_functions,
         function_signatures,
+        function_bodies,
     )?;
     if function_bodies.contains(function) {
         return Ok(());
@@ -390,6 +451,10 @@ fn type_check_function_body(
                     types,
                     type_checking_functions,
                     function_signatures,
+                    function_bodies,
+                    evaluating_consts,
+                    resolved_const_values,
+                    const_values,
                     &resolved_variables,
                 )?),
             }
@@ -399,6 +464,97 @@ fn type_check_function_body(
 
     type_checking_functions.remove(function);
     Ok(())
+}
+
+fn type_check_const(
+    const_: ti::ConstId,
+    resolved_program: &ResolvedProgram,
+    resolved_types: &mut IdMap<ti::TypeId, tt::TypeId>,
+    types: &mut IdVec<tt::TypeId, tt::Type>,
+    type_checking_functions: &mut IdMap<ti::FunctionId, ()>,
+    function_signatures: &mut IdMap<ti::FunctionId, tt::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, tt::FunctionBody>,
+    evaluating_consts: &mut IdMap<ti::ConstId, ()>,
+    resolved_const_values: &mut IdMap<ti::ConstId, tt::ConstId>,
+    const_values: &mut IdVec<tt::ConstId, Value>,
+) -> Result<tt::ConstId, TypeCheckingError> {
+    if let Some(&id) = resolved_const_values.get(const_) {
+        return Ok(id);
+    }
+    if evaluating_consts.insert(const_, ()).is_some() {
+        return Err(TypeCheckingError {
+            location: resolved_program.consts[const_].location,
+            kind: TypeCheckingErrorKind::CylicDependency,
+        });
+    }
+
+    let value = match resolved_program.const_values[const_] {
+        ti::ConstValue::Value {
+            ref variables,
+            ref value,
+        } => {
+            let mut resolved_variables = IdMap::new();
+            let mut typed_variables = IdVec::new();
+            for (
+                id,
+                &ti::Variable {
+                    location,
+                    name,
+                    typ,
+                },
+            ) in variables.iter()
+            {
+                resolved_variables.insert(
+                    id,
+                    typed_variables.push(tt::Variable {
+                        location,
+                        name,
+                        typ: type_check_type(typ, resolved_program, resolved_types, types)?,
+                    }),
+                );
+            }
+            let value = type_check_expression(
+                value,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+                &resolved_variables,
+            )?;
+
+            fully_type_check_expression(
+                &value,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+            )?;
+            interpret_expression(
+                &value,
+                types,
+                function_signatures,
+                function_bodies,
+                const_values,
+                &mut IdMap::new(),
+            )
+        }
+    };
+
+    let id = const_values.push(value);
+    resolved_const_values.insert(const_, id);
+
+    evaluating_consts.remove(const_);
+    Ok(id)
 }
 
 fn type_check_expression(
@@ -412,6 +568,10 @@ fn type_check_expression(
     types: &mut IdVec<tt::TypeId, tt::Type>,
     type_checking_functions: &mut IdMap<ti::FunctionId, ()>,
     function_signatures: &mut IdMap<ti::FunctionId, tt::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, tt::FunctionBody>,
+    evaluating_consts: &mut IdMap<ti::ConstId, ()>,
+    resolved_const_values: &mut IdMap<ti::ConstId, tt::ConstId>,
+    const_values: &mut IdVec<tt::ConstId, Value>,
     resolved_variables: &IdMap<ti::VariableId, tt::VariableId>,
 ) -> Result<tt::Expression, TypeCheckingError> {
     let typ = type_check_type(typ, resolved_program, resolved_types, types)?;
@@ -427,27 +587,35 @@ fn type_check_expression(
                     types,
                     type_checking_functions,
                     function_signatures,
+                    function_bodies,
+                    evaluating_consts,
+                    resolved_const_values,
+                    const_values,
                     resolved_variables,
                 )?))
             }
 
-            ti::ExpressionKind::Integer(value) => {
-                tt::ExpressionKind::Integer(match types[typ].kind {
-                    tt::TypeKind::Integer(integer_type_kind) => match integer_type_kind {
-                        ti::IntegerTypeKind::I64 => {
-                            if value > i64::MAX as _ {
-                                return Err(TypeCheckingError {
-                                    location,
-                                    kind: TypeCheckingErrorKind::ValueTooBigForI64(value),
-                                });
+            ti::ExpressionKind::Integer(value) => tt::ExpressionKind::Place(Box::new(tt::Place {
+                location,
+                typ,
+                kind: tt::PlaceKind::Const(const_values.push(Value::Integer(
+                    match types[typ].kind {
+                        tt::TypeKind::Integer(integer_type_kind) => match integer_type_kind {
+                            ti::IntegerTypeKind::I64 => {
+                                if value > i64::MAX as _ {
+                                    return Err(TypeCheckingError {
+                                        location,
+                                        kind: TypeCheckingErrorKind::ValueTooBigForI64(value),
+                                    });
+                                }
+                                IntegerValue::I64(value as i64)
                             }
-                            tt::IntegerValue::I64(value as i64)
-                        }
-                    },
+                        },
 
-                    _ => unreachable!(),
-                })
-            }
+                        _ => unreachable!(),
+                    },
+                ))),
+            })),
 
             ti::ExpressionKind::Block {
                 ref statements,
@@ -463,6 +631,10 @@ fn type_check_expression(
                             types,
                             type_checking_functions,
                             function_signatures,
+                            function_bodies,
+                            evaluating_consts,
+                            resolved_const_values,
+                            const_values,
                             resolved_variables,
                         )
                     })
@@ -474,6 +646,10 @@ fn type_check_expression(
                     types,
                     type_checking_functions,
                     function_signatures,
+                    function_bodies,
+                    evaluating_consts,
+                    resolved_const_values,
+                    const_values,
                     resolved_variables,
                 )?),
             },
@@ -517,6 +693,10 @@ fn type_check_expression(
                                         types,
                                         type_checking_functions,
                                         function_signatures,
+                                        function_bodies,
+                                        evaluating_consts,
+                                        resolved_const_values,
+                                        const_values,
                                         resolved_variables,
                                     )?,
                                 })
@@ -565,6 +745,10 @@ fn type_check_expression(
                                 types,
                                 type_checking_functions,
                                 function_signatures,
+                                function_bodies,
+                                evaluating_consts,
+                                resolved_const_values,
+                                const_values,
                                 resolved_variables,
                             )?,
                         }),
@@ -585,6 +769,10 @@ fn type_check_expression(
                     types,
                     type_checking_functions,
                     function_signatures,
+                    function_bodies,
+                    evaluating_consts,
+                    resolved_const_values,
+                    const_values,
                     resolved_variables,
                 )?);
                 tt::ExpressionKind::Unary {
@@ -623,6 +811,10 @@ fn type_check_expression(
                     types,
                     type_checking_functions,
                     function_signatures,
+                    function_bodies,
+                    evaluating_consts,
+                    resolved_const_values,
+                    const_values,
                     resolved_variables,
                 )?);
                 let right = Box::new(type_check_expression(
@@ -632,6 +824,10 @@ fn type_check_expression(
                     types,
                     type_checking_functions,
                     function_signatures,
+                    function_bodies,
+                    evaluating_consts,
+                    resolved_const_values,
+                    const_values,
                     resolved_variables,
                 )?);
                 tt::ExpressionKind::Binary {
@@ -678,6 +874,10 @@ fn type_check_expression(
                     types,
                     type_checking_functions,
                     function_signatures,
+                    function_bodies,
+                    evaluating_consts,
+                    resolved_const_values,
+                    const_values,
                     resolved_variables,
                 )?);
 
@@ -692,6 +892,10 @@ fn type_check_expression(
                                 types,
                                 type_checking_functions,
                                 function_signatures,
+                                function_bodies,
+                                evaluating_consts,
+                                resolved_const_values,
+                                const_values,
                                 resolved_variables,
                             )?);
                         }
@@ -714,6 +918,10 @@ fn type_check_statement(
     types: &mut IdVec<tt::TypeId, tt::Type>,
     type_checking_functions: &mut IdMap<ti::FunctionId, ()>,
     function_signatures: &mut IdMap<ti::FunctionId, tt::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, tt::FunctionBody>,
+    evaluating_consts: &mut IdMap<ti::ConstId, ()>,
+    resolved_const_values: &mut IdMap<ti::ConstId, tt::ConstId>,
+    const_values: &mut IdVec<tt::ConstId, Value>,
     resolved_variables: &IdMap<ti::VariableId, tt::VariableId>,
 ) -> Result<tt::Statement, TypeCheckingError> {
     Ok(tt::Statement {
@@ -727,6 +935,10 @@ fn type_check_statement(
                     types,
                     type_checking_functions,
                     function_signatures,
+                    function_bodies,
+                    evaluating_consts,
+                    resolved_const_values,
+                    const_values,
                     resolved_variables,
                 )?))
             }
@@ -742,6 +954,10 @@ fn type_check_statement(
                     types,
                     type_checking_functions,
                     function_signatures,
+                    function_bodies,
+                    evaluating_consts,
+                    resolved_const_values,
+                    const_values,
                     resolved_variables,
                 )?);
                 let value = Box::new(type_check_expression(
@@ -751,6 +967,10 @@ fn type_check_statement(
                     types,
                     type_checking_functions,
                     function_signatures,
+                    function_bodies,
+                    evaluating_consts,
+                    resolved_const_values,
+                    const_values,
                     resolved_variables,
                 )?);
                 check_pattern_assignable(&pattern)?;
@@ -771,6 +991,10 @@ fn type_check_place(
     types: &mut IdVec<tt::TypeId, tt::Type>,
     type_checking_functions: &mut IdMap<ti::FunctionId, ()>,
     function_signatures: &mut IdMap<ti::FunctionId, tt::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, tt::FunctionBody>,
+    evaluating_consts: &mut IdMap<ti::ConstId, ()>,
+    resolved_const_values: &mut IdMap<ti::ConstId, tt::ConstId>,
+    const_values: &mut IdVec<tt::ConstId, Value>,
     resolved_variables: &IdMap<ti::VariableId, tt::VariableId>,
 ) -> Result<tt::Place, TypeCheckingError> {
     let typ = type_check_type(typ, resolved_program, resolved_types, types)?;
@@ -780,6 +1004,18 @@ fn type_check_place(
         kind: match *kind {
             ti::PlaceKind::Variable(id) => tt::PlaceKind::Variable(resolved_variables[id]),
             ti::PlaceKind::Function(id) => tt::PlaceKind::Function(id),
+            ti::PlaceKind::Const(id) => tt::PlaceKind::Const(type_check_const(
+                id,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+            )?),
 
             ti::PlaceKind::Expression(ref expression) => {
                 tt::PlaceKind::Expression(Box::new(type_check_expression(
@@ -789,6 +1025,10 @@ fn type_check_place(
                     types,
                     type_checking_functions,
                     function_signatures,
+                    function_bodies,
+                    evaluating_consts,
+                    resolved_const_values,
+                    const_values,
                     resolved_variables,
                 )?))
             }
@@ -801,6 +1041,10 @@ fn type_check_place(
                     types,
                     type_checking_functions,
                     function_signatures,
+                    function_bodies,
+                    evaluating_consts,
+                    resolved_const_values,
+                    const_values,
                     resolved_variables,
                 )?);
                 match types[operand.typ].kind {
@@ -837,6 +1081,10 @@ fn type_check_pattern(
     types: &mut IdVec<tt::TypeId, tt::Type>,
     type_checking_functions: &mut IdMap<ti::FunctionId, ()>,
     function_signatures: &mut IdMap<ti::FunctionId, tt::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, tt::FunctionBody>,
+    evaluating_consts: &mut IdMap<ti::ConstId, ()>,
+    resolved_const_values: &mut IdMap<ti::ConstId, tt::ConstId>,
+    const_values: &mut IdVec<tt::ConstId, Value>,
     resolved_variables: &IdMap<ti::VariableId, tt::VariableId>,
 ) -> Result<tt::Pattern, TypeCheckingError> {
     let typ = type_check_type(typ, resolved_program, resolved_types, types)?;
@@ -852,25 +1100,35 @@ fn type_check_pattern(
                     types,
                     type_checking_functions,
                     function_signatures,
+                    function_bodies,
+                    evaluating_consts,
+                    resolved_const_values,
+                    const_values,
                     resolved_variables,
                 )?))
             }
 
-            ti::PatternKind::Integer(value) => tt::PatternKind::Integer(match types[typ].kind {
-                tt::TypeKind::Integer(integer_type_kind) => match integer_type_kind {
-                    ti::IntegerTypeKind::I64 => {
-                        if value > i64::MAX as _ {
-                            return Err(TypeCheckingError {
-                                location,
-                                kind: TypeCheckingErrorKind::ValueTooBigForI64(value),
-                            });
-                        }
-                        tt::IntegerValue::I64(value as i64)
-                    }
-                },
+            ti::PatternKind::Integer(value) => tt::PatternKind::Place(Box::new(tt::Place {
+                location,
+                typ,
+                kind: tt::PlaceKind::Const(const_values.push(Value::Integer(
+                    match types[typ].kind {
+                        tt::TypeKind::Integer(integer_type_kind) => match integer_type_kind {
+                            ti::IntegerTypeKind::I64 => {
+                                if value > i64::MAX as _ {
+                                    return Err(TypeCheckingError {
+                                        location,
+                                        kind: TypeCheckingErrorKind::ValueTooBigForI64(value),
+                                    });
+                                }
+                                IntegerValue::I64(value as i64)
+                            }
+                        },
 
-                _ => unreachable!(),
-            }),
+                        _ => unreachable!(),
+                    },
+                ))),
+            })),
 
             ti::PatternKind::Deconstructor { ref members } => match types[typ].kind {
                 tt::TypeKind::Struct {
@@ -911,6 +1169,10 @@ fn type_check_pattern(
                                         types,
                                         type_checking_functions,
                                         function_signatures,
+                                        function_bodies,
+                                        evaluating_consts,
+                                        resolved_const_values,
+                                        const_values,
                                         resolved_variables,
                                     )?,
                                 })
@@ -959,6 +1221,10 @@ fn type_check_pattern(
                                 types,
                                 type_checking_functions,
                                 function_signatures,
+                                function_bodies,
+                                evaluating_consts,
+                                resolved_const_values,
+                                const_values,
                                 resolved_variables,
                             )?,
                         }),
@@ -983,6 +1249,7 @@ fn check_place_assignable(
     let assignable = match *kind {
         tt::PlaceKind::Variable(_) => true,
         tt::PlaceKind::Function(_) => false,
+        tt::PlaceKind::Const(_) => false,
         tt::PlaceKind::Expression(_) => false,
         tt::PlaceKind::StructMemberAccess {
             ref operand,
@@ -1015,7 +1282,6 @@ fn check_pattern_assignable(
             check_place_assignable(place)?;
             true
         }
-        tt::PatternKind::Integer(_) => false,
         tt::PatternKind::StructDeconstructor { ref members } => {
             members
                 .iter()
@@ -1037,4 +1303,374 @@ fn check_pattern_assignable(
             kind: TypeCheckingErrorKind::PatternIsNotAssignable,
         })
     }
+}
+
+fn fully_type_check_expression(
+    expression: &tt::Expression,
+    resolved_program: &ResolvedProgram,
+    resolved_types: &mut IdMap<ti::TypeId, tt::TypeId>,
+    types: &mut IdVec<tt::TypeId, tt::Type>,
+    type_checking_functions: &mut IdMap<ti::FunctionId, ()>,
+    function_signatures: &mut IdMap<ti::FunctionId, tt::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, tt::FunctionBody>,
+    evaluating_consts: &mut IdMap<ti::ConstId, ()>,
+    resolved_const_values: &mut IdMap<ti::ConstId, tt::ConstId>,
+    const_values: &mut IdVec<tt::ConstId, Value>,
+) -> Result<(), TypeCheckingError> {
+    match expression.kind {
+        tt::ExpressionKind::Place(ref place) => {
+            fully_type_check_place(
+                place,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+            )?;
+        }
+
+        tt::ExpressionKind::StructConstructor { ref members } => {
+            for member in members {
+                fully_type_check_expression(
+                    &member.value,
+                    resolved_program,
+                    resolved_types,
+                    types,
+                    type_checking_functions,
+                    function_signatures,
+                    function_bodies,
+                    evaluating_consts,
+                    resolved_const_values,
+                    const_values,
+                )?;
+            }
+        }
+
+        tt::ExpressionKind::EnumConstructor { ref member } => {
+            fully_type_check_expression(
+                &member.value,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+            )?;
+        }
+
+        tt::ExpressionKind::Block {
+            ref statements,
+            ref last_expression,
+        } => {
+            for statement in statements {
+                fully_type_check_statement(
+                    statement,
+                    resolved_program,
+                    resolved_types,
+                    types,
+                    type_checking_functions,
+                    function_signatures,
+                    function_bodies,
+                    evaluating_consts,
+                    resolved_const_values,
+                    const_values,
+                )?;
+            }
+            fully_type_check_expression(
+                last_expression,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+            )?;
+        }
+
+        tt::ExpressionKind::Unary {
+            operator: _,
+            ref operand,
+        } => {
+            fully_type_check_expression(
+                operand,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+            )?;
+        }
+
+        tt::ExpressionKind::Binary {
+            ref left,
+            operator: _,
+            ref right,
+        } => {
+            fully_type_check_expression(
+                left,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+            )?;
+            fully_type_check_expression(
+                right,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+            )?;
+        }
+
+        tt::ExpressionKind::Call {
+            ref operand,
+            ref value_arguments,
+        } => {
+            fully_type_check_expression(
+                operand,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+            )?;
+            for argument in value_arguments {
+                fully_type_check_expression(
+                    argument,
+                    resolved_program,
+                    resolved_types,
+                    types,
+                    type_checking_functions,
+                    function_signatures,
+                    function_bodies,
+                    evaluating_consts,
+                    resolved_const_values,
+                    const_values,
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn fully_type_check_place(
+    place: &tt::Place,
+    resolved_program: &ResolvedProgram,
+    resolved_types: &mut IdMap<ti::TypeId, tt::TypeId>,
+    types: &mut IdVec<tt::TypeId, tt::Type>,
+    type_checking_functions: &mut IdMap<ti::FunctionId, ()>,
+    function_signatures: &mut IdMap<ti::FunctionId, tt::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, tt::FunctionBody>,
+    evaluating_consts: &mut IdMap<ti::ConstId, ()>,
+    resolved_const_values: &mut IdMap<ti::ConstId, tt::ConstId>,
+    const_values: &mut IdVec<tt::ConstId, Value>,
+) -> Result<(), TypeCheckingError> {
+    match place.kind {
+        tt::PlaceKind::Variable(_) => {}
+
+        tt::PlaceKind::Function(id) => {
+            type_check_function_body(
+                id,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+            )?;
+        }
+
+        tt::PlaceKind::Const(_) => {}
+
+        tt::PlaceKind::Expression(ref expression) => {
+            fully_type_check_expression(
+                expression,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+            )?;
+        }
+
+        tt::PlaceKind::StructMemberAccess {
+            ref operand,
+            member_index: _,
+        } => {
+            fully_type_check_place(
+                operand,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn fully_type_check_statement(
+    statement: &tt::Statement,
+    resolved_program: &ResolvedProgram,
+    resolved_types: &mut IdMap<ti::TypeId, tt::TypeId>,
+    types: &mut IdVec<tt::TypeId, tt::Type>,
+    type_checking_functions: &mut IdMap<ti::FunctionId, ()>,
+    function_signatures: &mut IdMap<ti::FunctionId, tt::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, tt::FunctionBody>,
+    evaluating_consts: &mut IdMap<ti::ConstId, ()>,
+    resolved_const_values: &mut IdMap<ti::ConstId, tt::ConstId>,
+    const_values: &mut IdVec<tt::ConstId, Value>,
+) -> Result<(), TypeCheckingError> {
+    match statement.kind {
+        tt::StatementKind::Expression(ref expression) => {
+            fully_type_check_expression(
+                expression,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+            )?;
+        }
+
+        tt::StatementKind::Assignment {
+            ref pattern,
+            ref value,
+        } => {
+            fully_type_check_pattern(
+                pattern,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+            )?;
+            fully_type_check_expression(
+                value,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn fully_type_check_pattern(
+    pattern: &tt::Pattern,
+    resolved_program: &ResolvedProgram,
+    resolved_types: &mut IdMap<ti::TypeId, tt::TypeId>,
+    types: &mut IdVec<tt::TypeId, tt::Type>,
+    type_checking_functions: &mut IdMap<ti::FunctionId, ()>,
+    function_signatures: &mut IdMap<ti::FunctionId, tt::FunctionSignature>,
+    function_bodies: &mut IdMap<ti::FunctionId, tt::FunctionBody>,
+    evaluating_consts: &mut IdMap<ti::ConstId, ()>,
+    resolved_const_values: &mut IdMap<ti::ConstId, tt::ConstId>,
+    const_values: &mut IdVec<tt::ConstId, Value>,
+) -> Result<(), TypeCheckingError> {
+    match pattern.kind {
+        tt::PatternKind::Place(ref place) => {
+            fully_type_check_place(
+                place,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+            )?;
+        }
+
+        tt::PatternKind::StructDeconstructor { ref members } => {
+            for member in members {
+                fully_type_check_pattern(
+                    &member.pattern,
+                    resolved_program,
+                    resolved_types,
+                    types,
+                    type_checking_functions,
+                    function_signatures,
+                    function_bodies,
+                    evaluating_consts,
+                    resolved_const_values,
+                    const_values,
+                )?;
+            }
+        }
+
+        tt::PatternKind::EnumDeconstructor { ref member } => {
+            fully_type_check_pattern(
+                &member.pattern,
+                resolved_program,
+                resolved_types,
+                types,
+                type_checking_functions,
+                function_signatures,
+                function_bodies,
+                evaluating_consts,
+                resolved_const_values,
+                const_values,
+            )?;
+        }
+
+        tt::PatternKind::Let(_) => {}
+    }
+    Ok(())
 }

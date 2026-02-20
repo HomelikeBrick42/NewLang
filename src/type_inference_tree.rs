@@ -120,7 +120,6 @@ pub enum ArgumentKind {
     Value(Box<Expression>),
 }
 
-
 #[derive(Debug)]
 pub struct Place {
     pub location: SourceLocation,
@@ -132,13 +131,13 @@ pub struct Place {
 pub enum PlaceKind {
     Variable(VariableId),
     Function(FunctionId),
+    Const(ConstId),
     Expression(Box<Expression>),
     MemberAccess {
         operand: Box<Place>,
         name: InternedStr,
     },
 }
-
 
 #[derive(Debug)]
 pub struct Pattern {
@@ -151,9 +150,7 @@ pub struct Pattern {
 pub enum PatternKind {
     Place(Box<Place>),
     Integer(u128),
-    Deconstructor {
-        members: Box<[DeconstructorMember]>,
-    },
+    Deconstructor { members: Box<[DeconstructorMember]> },
     Let(VariableId),
 }
 
@@ -162,6 +159,23 @@ pub struct DeconstructorMember {
     pub location: SourceLocation,
     pub name: InternedStr,
     pub pattern: Pattern,
+}
+
+new_id_type!(pub struct ConstId);
+
+#[derive(Debug)]
+pub struct Const {
+    pub location: SourceLocation,
+    pub name: Option<InternedStr>,
+    pub typ: TypeId,
+}
+
+#[derive(Debug)]
+pub enum ConstValue {
+    Value {
+        variables: IdVec<VariableId, Variable>,
+        value: Expression,
+    },
 }
 
 new_id_type!(pub struct TypeId);

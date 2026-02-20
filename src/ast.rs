@@ -31,6 +31,11 @@ pub enum ItemKind {
         name: InternedStr,
         typ: Option<Box<Type>>,
     },
+    Const {
+        name: InternedStr,
+        typ: Box<Type>,
+        value: Option<Box<Expression>>,
+    },
 }
 
 #[derive(Debug)]

@@ -91,6 +91,8 @@ fn main() -> ExitCode {
         &mut resolved_program.types,
         &resolved_program.function_signatures,
         &resolved_program.function_bodies,
+        &resolved_program.consts,
+        &resolved_program.const_values,
     );
     if !inferring_errors.is_empty() {
         print_inferring_errors(&inferring_errors, &resolved_program.types);
@@ -100,7 +102,7 @@ fn main() -> ExitCode {
 
     let typed_program = type_check_program(&resolved_program);
     if !typed_program.errors.is_empty() {
-        print_type_checking_errors(&typed_program);
+        print_type_checking_errors(&typed_program, &resolved_program);
         return ExitCode::FAILURE;
     }
     drop(resolved_program);
@@ -149,7 +151,10 @@ fn main() -> ExitCode {
         Box::new([Value::Struct {
             members: Box::new([]),
         }]),
-        &typed_program,
+        &typed_program.types,
+        &typed_program.function_signatures,
+        &typed_program.function_bodies,
+        &typed_program.const_values,
     );
 
     ExitCode::SUCCESS

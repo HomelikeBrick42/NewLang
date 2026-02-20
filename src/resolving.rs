@@ -26,6 +26,7 @@ pub enum ResolvingErrorKind {
     ExpectedValue { got: Name },
     ExpectedValueOrType { got: Name },
     TypeAliasMustHaveType,
+    ConstMustHaveValue,
     FunctionWithoutBody,
 }
 
@@ -47,6 +48,7 @@ pub fn print_resolving_errors(resolved_program: &ResolvedProgram) {
                     NameKind::Module(_) => "module",
                     NameKind::Function(_) => "function",
                     NameKind::Type(_) => "type",
+                    NameKind::Const(_) => "const",
                     NameKind::Variable(_) => "variable",
                 };
                 eprintln!("Expected a module but got a {typ}");
@@ -58,6 +60,7 @@ pub fn print_resolving_errors(resolved_program: &ResolvedProgram) {
                     NameKind::Module(_) => "module",
                     NameKind::Function(_) => "function",
                     NameKind::Type(_) => "type",
+                    NameKind::Const(_) => "const",
                     NameKind::Variable(_) => "variable",
                 };
                 eprintln!("Expected a type but got a {typ}");
@@ -69,6 +72,7 @@ pub fn print_resolving_errors(resolved_program: &ResolvedProgram) {
                     NameKind::Module(_) => "module",
                     NameKind::Function(_) => "function",
                     NameKind::Type(_) => "type",
+                    NameKind::Const(_) => "const",
                     NameKind::Variable(_) => "variable",
                 };
                 eprintln!("Expected a value but got a {typ}");
@@ -80,6 +84,7 @@ pub fn print_resolving_errors(resolved_program: &ResolvedProgram) {
                     NameKind::Module(_) => "module",
                     NameKind::Function(_) => "function",
                     NameKind::Type(_) => "type",
+                    NameKind::Const(_) => "const",
                     NameKind::Variable(_) => "variable",
                 };
                 eprintln!("Expected a value or a type but got a {typ}");
@@ -88,6 +93,10 @@ pub fn print_resolving_errors(resolved_program: &ResolvedProgram) {
 
             ResolvingErrorKind::TypeAliasMustHaveType => {
                 eprintln!("Type aliases must have an assigned type");
+            }
+
+            ResolvingErrorKind::ConstMustHaveValue => {
+                eprintln!("Consts must have an assigned value");
             }
 
             ResolvingErrorKind::FunctionWithoutBody => {
@@ -127,6 +136,7 @@ pub enum ModuleItemKind<'ast> {
     Module(ModuleId),
     Function(ti::FunctionId),
     Type(ti::TypeId),
+    Const(ti::ConstId),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -140,6 +150,7 @@ pub enum NameKind {
     Module(ModuleId),
     Function(ti::FunctionId),
     Type(ti::TypeId),
+    Const(ti::ConstId),
     Variable(ti::VariableId),
 }
 
@@ -157,6 +168,9 @@ pub struct ResolvedProgram<'ast> {
 
     pub function_signatures: IdVec<ti::FunctionId, ti::FunctionSignature>,
     pub function_bodies: IdMap<ti::FunctionId, ti::FunctionBody>,
+
+    pub consts: IdVec<ti::ConstId, ti::Const>,
+    pub const_values: IdMap<ti::ConstId, ti::ConstValue>,
 
     pub global_module: Option<ModuleId>,
     pub modules: IdVec<ModuleId, Module>,
@@ -181,6 +195,12 @@ struct FunctionBodyToCheck<'ast> {
     expression: &'ast ast::Expression,
 }
 
+struct ConstValueToCheck<'ast> {
+    const_: ti::ConstId,
+    scope: Scope,
+    value: &'ast ast::Expression,
+}
+
 pub fn resolve_program<'ast>(
     location: SourceLocation,
     items: &'ast [ast::Item],
@@ -189,6 +209,9 @@ pub fn resolve_program<'ast>(
     let mut function_signatures = IdVec::new();
     let mut function_bodies_to_check = VecDeque::new();
     let mut function_bodies = IdMap::new();
+    let mut consts = IdVec::new();
+    let mut const_values_to_check = VecDeque::new();
+    let mut const_values = IdMap::new();
     let mut modules = IdVec::new();
     let mut module_items = IdVec::new();
     let mut builtins = Builtins {
@@ -209,6 +232,9 @@ pub fn resolve_program<'ast>(
         &mut function_signatures,
         &mut function_bodies,
         &mut function_bodies_to_check,
+        &mut consts,
+        &mut const_values_to_check,
+        &mut const_values,
         &mut modules,
         &mut module_items,
         &mut builtins,
@@ -234,6 +260,9 @@ pub fn resolve_program<'ast>(
                 &mut function_signatures,
                 &mut function_bodies,
                 &mut function_bodies_to_check,
+                &mut consts,
+                &mut const_values_to_check,
+                &mut const_values,
                 &mut modules,
                 &mut module_items,
                 &mut builtins,
@@ -262,6 +291,9 @@ pub fn resolve_program<'ast>(
                 &mut function_signatures,
                 &mut function_bodies,
                 &mut function_bodies_to_check,
+                &mut consts,
+                &mut const_values_to_check,
+                &mut const_values,
                 &mut modules,
                 &mut module_items,
                 &mut builtins,
@@ -285,6 +317,41 @@ pub fn resolve_program<'ast>(
             );
         }
 
+        while let Some(ConstValueToCheck {
+            const_,
+            scope,
+            value,
+        }) = const_values_to_check.pop_front()
+        {
+            was_unresolved_item = true;
+
+            let mut variables = IdVec::new();
+            let value = match resolve_expression(
+                value,
+                &scope,
+                &mut types,
+                &mut function_signatures,
+                &mut function_bodies,
+                &mut function_bodies_to_check,
+                &mut consts,
+                &mut const_values_to_check,
+                &mut const_values,
+                &mut modules,
+                &mut module_items,
+                &mut builtins,
+                &mut variables,
+            ) {
+                Ok(expression) => expression,
+                Err(error) => {
+                    errors.push(error);
+                    continue;
+                }
+            };
+
+            assert!(const_values.get(const_).is_none());
+            const_values.insert(const_, ti::ConstValue::Value { variables, value });
+        }
+
         if !was_unresolved_item {
             break;
         }
@@ -295,6 +362,9 @@ pub fn resolve_program<'ast>(
 
         function_signatures,
         function_bodies,
+
+        consts,
+        const_values,
 
         global_module,
         modules,
@@ -316,6 +386,9 @@ fn create_unresolved_module_items<'ast>(
     function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
     function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
     function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
+    consts: &mut IdVec<ti::ConstId, ti::Const>,
+    const_values_to_check: &mut VecDeque<ConstValueToCheck<'ast>>,
+    const_values: &mut IdMap<ti::ConstId, ti::ConstValue>,
     modules: &mut IdVec<ModuleId, Module>,
     module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
     builtins: &mut Builtins,
@@ -332,7 +405,8 @@ fn create_unresolved_module_items<'ast>(
         | ast::ItemKind::Fn { name, .. }
         | ast::ItemKind::Struct { name, .. }
         | ast::ItemKind::Enum { name, .. }
-        | ast::ItemKind::Type { name, .. }) = item.kind;
+        | ast::ItemKind::Type { name, .. }
+        | ast::ItemKind::Const { name, .. }) = item.kind;
 
         let module_item = module_items.push(ModuleItem {
             location: item.location,
@@ -351,6 +425,9 @@ fn create_unresolved_module_items<'ast>(
                 function_signatures,
                 function_bodies,
                 function_bodies_to_check,
+                consts,
+                const_values_to_check,
+                const_values,
                 modules,
                 module_items,
                 builtins,
@@ -368,6 +445,9 @@ fn resolve_module_item<'ast>(
     function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
     function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
     function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
+    consts: &mut IdVec<ti::ConstId, ti::Const>,
+    const_values_to_check: &mut VecDeque<ConstValueToCheck<'ast>>,
+    const_values: &mut IdMap<ti::ConstId, ti::ConstValue>,
     modules: &mut IdVec<ModuleId, Module>,
     module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
     builtins: &mut Builtins,
@@ -403,6 +483,9 @@ fn resolve_module_item<'ast>(
                     function_signatures,
                     function_bodies,
                     function_bodies_to_check,
+                    consts,
+                    const_values_to_check,
+                    const_values,
                     modules,
                     module_items,
                     builtins,
@@ -433,6 +516,9 @@ fn resolve_module_item<'ast>(
                                         function_signatures,
                                         function_bodies,
                                         function_bodies_to_check,
+                                        consts,
+                                        const_values_to_check,
+                                        const_values,
                                         modules,
                                         module_items,
                                         builtins,
@@ -487,6 +573,9 @@ fn resolve_module_item<'ast>(
                     function_signatures,
                     function_bodies,
                     function_bodies_to_check,
+                    consts,
+                    const_values_to_check,
+                    const_values,
                     modules,
                     module_items,
                     builtins,
@@ -559,6 +648,9 @@ fn resolve_module_item<'ast>(
                                     function_signatures,
                                     function_bodies,
                                     function_bodies_to_check,
+                                    consts,
+                                    const_values_to_check,
+                                    const_values,
                                     modules,
                                     module_items,
                                     builtins,
@@ -610,6 +702,9 @@ fn resolve_module_item<'ast>(
                                     function_signatures,
                                     function_bodies,
                                     function_bodies_to_check,
+                                    consts,
+                                    const_values_to_check,
+                                    const_values,
                                     modules,
                                     module_items,
                                     builtins,
@@ -668,6 +763,9 @@ fn resolve_module_item<'ast>(
                     function_signatures,
                     function_bodies,
                     function_bodies_to_check,
+                    consts,
+                    const_values_to_check,
+                    const_values,
                     modules,
                     module_items,
                     builtins,
@@ -678,6 +776,54 @@ fn resolve_module_item<'ast>(
                     kind: ResolvingErrorKind::TypeAliasMustHaveType,
                 });
             }),
+
+            ast::ItemKind::Const {
+                name,
+                ref typ,
+                ref value,
+            } => {
+                let typ = resolve_type(
+                    typ,
+                    &scope,
+                    types,
+                    function_signatures,
+                    function_bodies,
+                    function_bodies_to_check,
+                    consts,
+                    const_values_to_check,
+                    const_values,
+                    modules,
+                    module_items,
+                    builtins,
+                )?;
+
+                let const_ = consts.push(ti::Const {
+                    location,
+                    name: Some(name),
+                    typ,
+                });
+
+                if builtin {
+                    assert!(value.is_none());
+                    #[expect(clippy::match_single_binding)]
+                    match name.as_str() {
+                        _ => panic!(),
+                    }
+                } else if let Some(value) = value {
+                    const_values_to_check.push_back(ConstValueToCheck {
+                        const_,
+                        scope,
+                        value,
+                    });
+                } else {
+                    return Err(ResolvingError {
+                        location,
+                        kind: ResolvingErrorKind::ConstMustHaveValue,
+                    });
+                }
+
+                ModuleItemKind::Const(const_)
+            }
         };
     }
     Ok(())
@@ -690,6 +836,9 @@ fn resolve_type<'ast>(
     function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
     function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
     function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
+    consts: &mut IdVec<ti::ConstId, ti::Const>,
+    const_values_to_check: &mut VecDeque<ConstValueToCheck<'ast>>,
+    const_values: &mut IdMap<ti::ConstId, ti::ConstValue>,
     modules: &mut IdVec<ModuleId, Module>,
     module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
     builtins: &mut Builtins,
@@ -703,6 +852,9 @@ fn resolve_type<'ast>(
                 function_signatures,
                 function_bodies,
                 function_bodies_to_check,
+                consts,
+                const_values_to_check,
+                const_values,
                 modules,
                 module_items,
                 builtins,
@@ -710,7 +862,10 @@ fn resolve_type<'ast>(
             match name.kind {
                 NameKind::Type(id) => id,
 
-                NameKind::Module(_) | NameKind::Function(_) | NameKind::Variable(_) => {
+                NameKind::Module(_)
+                | NameKind::Function(_)
+                | NameKind::Const(_)
+                | NameKind::Variable(_) => {
                     return Err(ResolvingError {
                         location,
                         kind: ResolvingErrorKind::ExpectedType { got: name },
@@ -730,6 +885,9 @@ fn resolve_path<'ast>(
     function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
     function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
     function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
+    consts: &mut IdVec<ti::ConstId, ti::Const>,
+    const_values_to_check: &mut VecDeque<ConstValueToCheck<'ast>>,
+    const_values: &mut IdMap<ti::ConstId, ti::ConstValue>,
     modules: &mut IdVec<ModuleId, Module>,
     module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
     builtins: &mut Builtins,
@@ -747,6 +905,9 @@ fn resolve_path<'ast>(
                     function_signatures,
                     function_bodies,
                     function_bodies_to_check,
+                    consts,
+                    const_values_to_check,
+                    const_values,
                     modules,
                     module_items,
                     builtins,
@@ -762,6 +923,9 @@ fn resolve_path<'ast>(
                 function_signatures,
                 function_bodies,
                 function_bodies_to_check,
+                consts,
+                const_values_to_check,
+                const_values,
                 modules,
                 module_items,
                 builtins,
@@ -775,17 +939,21 @@ fn resolve_path<'ast>(
                     function_signatures,
                     function_bodies,
                     function_bodies_to_check,
+                    consts,
+                    const_values_to_check,
+                    const_values,
                     modules,
                     module_items,
                     builtins,
                 ),
 
-                NameKind::Function(_) | NameKind::Type(_) | NameKind::Variable(_) => {
-                    Err(ResolvingError {
-                        location: operand.location,
-                        kind: ResolvingErrorKind::ExpectedModule { got: operand_name },
-                    })
-                }
+                NameKind::Function(_)
+                | NameKind::Type(_)
+                | NameKind::Const(_)
+                | NameKind::Variable(_) => Err(ResolvingError {
+                    location: operand.location,
+                    kind: ResolvingErrorKind::ExpectedModule { got: operand_name },
+                }),
             }
         }
     }
@@ -799,6 +967,9 @@ fn resolve_module_name<'ast>(
     function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
     function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
     function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
+    consts: &mut IdVec<ti::ConstId, ti::Const>,
+    const_values_to_check: &mut VecDeque<ConstValueToCheck<'ast>>,
+    const_values: &mut IdMap<ti::ConstId, ti::ConstValue>,
     modules: &mut IdVec<ModuleId, Module>,
     module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
     builtins: &mut Builtins,
@@ -811,6 +982,9 @@ fn resolve_module_name<'ast>(
             function_signatures,
             function_bodies,
             function_bodies_to_check,
+            consts,
+            const_values_to_check,
+            const_values,
             modules,
             module_items,
             builtins,
@@ -830,6 +1004,7 @@ fn resolve_module_name<'ast>(
                 ModuleItemKind::Module(id) => NameKind::Module(id),
                 ModuleItemKind::Function(id) => NameKind::Function(id),
                 ModuleItemKind::Type(id) => NameKind::Type(id),
+                ModuleItemKind::Const(id) => NameKind::Const(id),
             },
         })
     } else if module.transparent
@@ -843,6 +1018,9 @@ fn resolve_module_name<'ast>(
             function_signatures,
             function_bodies,
             function_bodies_to_check,
+            consts,
+            const_values_to_check,
+            const_values,
             modules,
             module_items,
             builtins,
@@ -862,6 +1040,9 @@ fn resolve_expression<'ast>(
     function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
     function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
     function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
+    consts: &mut IdVec<ti::ConstId, ti::Const>,
+    const_values_to_check: &mut VecDeque<ConstValueToCheck<'ast>>,
+    const_values: &mut IdMap<ti::ConstId, ti::ConstValue>,
     modules: &mut IdVec<ModuleId, Module>,
     module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
     builtins: &mut Builtins,
@@ -876,6 +1057,9 @@ fn resolve_expression<'ast>(
                 function_signatures,
                 function_bodies,
                 function_bodies_to_check,
+                consts,
+                const_values_to_check,
+                const_values,
                 modules,
                 module_items,
                 builtins,
@@ -917,6 +1101,9 @@ fn resolve_expression<'ast>(
                 function_signatures,
                 function_bodies,
                 function_bodies_to_check,
+                consts,
+                const_values_to_check,
+                const_values,
                 modules,
                 module_items,
                 builtins,
@@ -935,6 +1122,9 @@ fn resolve_expression<'ast>(
                         function_signatures,
                         function_bodies,
                         function_bodies_to_check,
+                        consts,
+                        const_values_to_check,
+                        const_values,
                         modules,
                         module_items,
                         builtins,
@@ -950,6 +1140,9 @@ fn resolve_expression<'ast>(
                 function_signatures,
                 function_bodies,
                 function_bodies_to_check,
+                consts,
+                const_values_to_check,
+                const_values,
                 modules,
                 module_items,
                 builtins,
@@ -977,6 +1170,9 @@ fn resolve_expression<'ast>(
                 function_signatures,
                 function_bodies,
                 function_bodies_to_check,
+                consts,
+                const_values_to_check,
+                const_values,
                 modules,
                 module_items,
                 builtins,
@@ -1000,6 +1196,9 @@ fn resolve_expression<'ast>(
                                     function_signatures,
                                     function_bodies,
                                     function_bodies_to_check,
+                                    consts,
+                                    const_values_to_check,
+                                    const_values,
                                     modules,
                                     module_items,
                                     builtins,
@@ -1031,6 +1230,9 @@ fn resolve_expression<'ast>(
                     function_signatures,
                     function_bodies,
                     function_bodies_to_check,
+                    consts,
+                    const_values_to_check,
+                    const_values,
                     modules,
                     module_items,
                     builtins,
@@ -1058,6 +1260,9 @@ fn resolve_expression<'ast>(
                     function_signatures,
                     function_bodies,
                     function_bodies_to_check,
+                    consts,
+                    const_values_to_check,
+                    const_values,
                     modules,
                     module_items,
                     builtins,
@@ -1071,6 +1276,9 @@ fn resolve_expression<'ast>(
                     function_signatures,
                     function_bodies,
                     function_bodies_to_check,
+                    consts,
+                    const_values_to_check,
+                    const_values,
                     modules,
                     module_items,
                     builtins,
@@ -1097,6 +1305,9 @@ fn resolve_expression<'ast>(
                     function_signatures,
                     function_bodies,
                     function_bodies_to_check,
+                    consts,
+                    const_values_to_check,
+                    const_values,
                     modules,
                     module_items,
                     builtins,
@@ -1112,6 +1323,9 @@ fn resolve_expression<'ast>(
                             function_signatures,
                             function_bodies,
                             function_bodies_to_check,
+                            consts,
+                            const_values_to_check,
+                            const_values,
                             modules,
                             module_items,
                             builtins,
@@ -1131,6 +1345,9 @@ fn resolve_argument<'ast>(
     function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
     function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
     function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
+    consts: &mut IdVec<ti::ConstId, ti::Const>,
+    const_values_to_check: &mut VecDeque<ConstValueToCheck<'ast>>,
+    const_values: &mut IdMap<ti::ConstId, ti::ConstValue>,
     modules: &mut IdVec<ModuleId, Module>,
     module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
     builtins: &mut Builtins,
@@ -1147,6 +1364,9 @@ fn resolve_argument<'ast>(
                     function_signatures,
                     function_bodies,
                     function_bodies_to_check,
+                    consts,
+                    const_values_to_check,
+                    const_values,
                     modules,
                     module_items,
                     builtins,
@@ -1166,6 +1386,9 @@ fn resolve_statement<'ast>(
     function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
     function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
     function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
+    consts: &mut IdVec<ti::ConstId, ti::Const>,
+    const_values_to_check: &mut VecDeque<ConstValueToCheck<'ast>>,
+    const_values: &mut IdMap<ti::ConstId, ti::ConstValue>,
     modules: &mut IdVec<ModuleId, Module>,
     module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
     builtins: &mut Builtins,
@@ -1184,6 +1407,9 @@ fn resolve_statement<'ast>(
                     function_signatures,
                     function_bodies,
                     function_bodies_to_check,
+                    consts,
+                    const_values_to_check,
+                    const_values,
                     modules,
                     module_items,
                     builtins,
@@ -1202,6 +1428,9 @@ fn resolve_statement<'ast>(
                     function_signatures,
                     function_bodies,
                     function_bodies_to_check,
+                    consts,
+                    const_values_to_check,
+                    const_values,
                     modules,
                     module_items,
                     builtins,
@@ -1214,6 +1443,9 @@ fn resolve_statement<'ast>(
                     function_signatures,
                     function_bodies,
                     function_bodies_to_check,
+                    consts,
+                    const_values_to_check,
+                    const_values,
                     modules,
                     module_items,
                     builtins,
@@ -1231,6 +1463,9 @@ fn resolve_place<'ast>(
     function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
     function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
     function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
+    consts: &mut IdVec<ti::ConstId, ti::Const>,
+    const_values_to_check: &mut VecDeque<ConstValueToCheck<'ast>>,
+    const_values: &mut IdMap<ti::ConstId, ti::ConstValue>,
     modules: &mut IdVec<ModuleId, Module>,
     module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
     builtins: &mut Builtins,
@@ -1245,6 +1480,9 @@ fn resolve_place<'ast>(
                 function_signatures,
                 function_bodies,
                 function_bodies_to_check,
+                consts,
+                const_values_to_check,
+                const_values,
                 modules,
                 module_items,
                 builtins,
@@ -1260,6 +1498,12 @@ fn resolve_place<'ast>(
                     location,
                     typ: variables[id].typ,
                     kind: ti::PlaceKind::Variable(id),
+                },
+
+                NameKind::Const(id) => ti::Place {
+                    location,
+                    typ: consts[id].typ,
+                    kind: ti::PlaceKind::Const(id),
                 },
 
                 NameKind::Module(_) | NameKind::Type(_) => {
@@ -1279,6 +1523,9 @@ fn resolve_place<'ast>(
                 function_signatures,
                 function_bodies,
                 function_bodies_to_check,
+                consts,
+                const_values_to_check,
+                const_values,
                 modules,
                 module_items,
                 builtins,
@@ -1306,6 +1553,9 @@ fn resolve_place<'ast>(
                     function_signatures,
                     function_bodies,
                     function_bodies_to_check,
+                    consts,
+                    const_values_to_check,
+                    const_values,
                     modules,
                     module_items,
                     builtins,
@@ -1324,6 +1574,9 @@ fn resolve_pattern<'ast>(
     function_signatures: &mut IdVec<ti::FunctionId, ti::FunctionSignature>,
     function_bodies: &mut IdMap<ti::FunctionId, ti::FunctionBody>,
     function_bodies_to_check: &mut VecDeque<FunctionBodyToCheck<'ast>>,
+    consts: &mut IdVec<ti::ConstId, ti::Const>,
+    const_values_to_check: &mut VecDeque<ConstValueToCheck<'ast>>,
+    const_values: &mut IdMap<ti::ConstId, ti::ConstValue>,
     modules: &mut IdVec<ModuleId, Module>,
     module_items: &mut IdVec<ModuleItemId, ModuleItem<'ast>>,
     builtins: &mut Builtins,
@@ -1338,6 +1591,9 @@ fn resolve_pattern<'ast>(
                 function_signatures,
                 function_bodies,
                 function_bodies_to_check,
+                consts,
+                const_values_to_check,
+                const_values,
                 modules,
                 module_items,
                 builtins,
@@ -1372,6 +1628,9 @@ fn resolve_pattern<'ast>(
                 function_signatures,
                 function_bodies,
                 function_bodies_to_check,
+                consts,
+                const_values_to_check,
+                const_values,
                 modules,
                 module_items,
                 builtins,
@@ -1395,6 +1654,9 @@ fn resolve_pattern<'ast>(
                                     function_signatures,
                                     function_bodies,
                                     function_bodies_to_check,
+                                    consts,
+                                    const_values_to_check,
+                                    const_values,
                                     modules,
                                     module_items,
                                     builtins,
@@ -1416,6 +1678,9 @@ fn resolve_pattern<'ast>(
                     function_signatures,
                     function_bodies,
                     function_bodies_to_check,
+                    consts,
+                    const_values_to_check,
+                    const_values,
                     modules,
                     module_items,
                     builtins,

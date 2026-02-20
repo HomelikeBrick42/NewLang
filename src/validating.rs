@@ -250,6 +250,26 @@ pub fn validate_item(
                     .transpose()?
                     .map(Box::new),
             },
+
+            st::ItemKind::Const {
+                const_token: _,
+                name_token,
+                colon_type,
+                equals_value,
+            } => ast::ItemKind::Const {
+                name: {
+                    let TokenKind::Name(name) = name_token.kind else {
+                        unreachable!()
+                    };
+                    name
+                },
+                typ: Box::new(validate_type(&colon_type.typ)?),
+                value: equals_value
+                    .as_ref()
+                    .map(|equals_value| validate_expression(&equals_value.value))
+                    .transpose()?
+                    .map(Box::new),
+            },
         },
     })
 }

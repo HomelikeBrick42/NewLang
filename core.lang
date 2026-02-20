@@ -12,6 +12,8 @@ enum Bool {
     false: Unit,
     true: Unit,
 }
+const false: Bool = Bool { false: {} }
+const true: Bool = Bool { true: {} }
 
 #[builtin]
 fn print_i64(value: I64, runtime: Runtime)

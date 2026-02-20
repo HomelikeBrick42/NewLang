@@ -2,10 +2,10 @@ use crate::{
     idvec::{IdMap, IdSlice, IdVec},
     lexing::SourceLocation,
     type_inference_tree::{
-        ArgumentKind, BuiltinFunctionBody, Expression, ExpressionKind, FunctionBody, FunctionId,
-        FunctionParameterKind, FunctionSignature, InferFunctionParameter, InferTypeKind, Pattern,
-        PatternKind, Place, PlaceKind, PrettyPrintType, Statement, StatementKind, Type, TypeId,
-        TypeKind,
+        ArgumentKind, BuiltinFunctionBody, Const, ConstId, ConstValue, Expression, ExpressionKind,
+        FunctionBody, FunctionId, FunctionParameterKind, FunctionSignature, InferFunctionParameter,
+        InferTypeKind, Pattern, PatternKind, Place, PlaceKind, PrettyPrintType, Statement,
+        StatementKind, Type, TypeId, TypeKind,
     },
 };
 use std::collections::hash_map::Entry;
@@ -48,6 +48,8 @@ pub fn infer_program(
     types: &mut IdVec<TypeId, Type>,
     function_signatures: &IdSlice<FunctionId, FunctionSignature>,
     function_bodies: &IdMap<FunctionId, FunctionBody>,
+    consts: &IdSlice<ConstId, Const>,
+    const_values: &IdMap<ConstId, ConstValue>,
 ) -> Vec<InferringError> {
     let mut errors = vec![];
     for (id, function_body) in function_bodies.iter() {
@@ -69,6 +71,16 @@ pub fn infer_program(
                 types,
                 &mut errors,
             ),
+        }
+    }
+    for (id, const_value) in const_values.iter() {
+        let const_ = &consts[id];
+
+        match const_value {
+            ConstValue::Value {
+                variables: _,
+                value,
+            } => infer_expression(value, const_.typ, function_signatures, types, &mut errors),
         }
     }
     errors
@@ -246,6 +258,7 @@ fn infer_place(
     match place.kind {
         PlaceKind::Variable(_) => {}
         PlaceKind::Function(_) => {}
+        PlaceKind::Const(_) => {}
 
         PlaceKind::Expression(ref expression) => {
             infer_expression(

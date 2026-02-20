@@ -6,6 +6,8 @@ use crate::{
 };
 use std::fmt::Display;
 
+new_id_type!(pub struct ConstId);
+
 #[derive(Debug)]
 pub struct FunctionSignature {
     pub location: SourceLocation,
@@ -86,7 +88,6 @@ pub struct Expression {
 #[derive(Debug)]
 pub enum ExpressionKind {
     Place(Box<Place>),
-    Integer(IntegerValue),
     StructConstructor {
         members: Box<[ConstructorMember]>,
     },
@@ -110,11 +111,6 @@ pub enum ExpressionKind {
         operand: Box<Expression>,
         value_arguments: Box<[Expression]>,
     },
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum IntegerValue {
-    I64(i64),
 }
 
 #[derive(Debug)]
@@ -149,6 +145,7 @@ pub struct Place {
 pub enum PlaceKind {
     Variable(VariableId),
     Function(FunctionId),
+    Const(ConstId),
     Expression(Box<Expression>),
     StructMemberAccess {
         operand: Box<Place>,
@@ -166,7 +163,6 @@ pub struct Pattern {
 #[derive(Debug)]
 pub enum PatternKind {
     Place(Box<Place>),
-    Integer(IntegerValue),
     StructDeconstructor { members: Box<[DeconstructorMember]> },
     EnumDeconstructor { member: Box<DeconstructorMember> },
     Let(VariableId),

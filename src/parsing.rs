@@ -3,7 +3,7 @@ use crate::{
     interning::InternedStr,
     lexing::{Lexer, LexerErrorKind, LexingError, SourceLocation, Token, TokenKind},
     syntax_tree::{
-        Argument, Attribute, ColonType, ConstructorArgument, EqualsType, Expression,
+        Argument, Attribute, ColonType, ConstructorArgument, EqualsType, EqualsValue, Expression,
         ExpressionKind, Item, ItemKind, Member, Members, Parameter, Parameters, ReturnType,
         Statement, StatementKind,
     },
@@ -329,10 +329,29 @@ pub fn parse_item(lexer: &mut Lexer) -> Result<Item, ParsingError> {
             },
         },
 
-        Token {
+        const_token @ Token {
             location,
             kind: TokenKind::ConstKeyword,
-        } => todo!("unimplemented const syntax at {location}"),
+        } => Item {
+            attributes,
+            location,
+            kind: ItemKind::Const {
+                const_token,
+                name_token: expect_token!(lexer, TokenKind::Name(_))?,
+                colon_type: Box::new(ColonType {
+                    colon_token: expect_token!(lexer, TokenKind::Colon)?,
+                    typ: parse_expression(lexer, true)?,
+                }),
+                equals_value: if let Some(equals_token) = eat_token!(lexer, TokenKind::Equals) {
+                    Some(Box::new(EqualsValue {
+                        equals_token,
+                        value: parse_expression(lexer, true)?,
+                    }))
+                } else {
+                    None
+                },
+            },
+        },
 
         Token {
             location,
