@@ -1,0 +1,18 @@
+#[builtin]
+type Runtime
+
+#[builtin]
+type Unit
+
+#[builtin]
+type I64
+
+#[builtin]
+fn print_i64(value: I64, runtime: Runtime)
+
+fn main(runtime: Runtime) {
+    print_i64(5, runtime)
+
+    let variable = 6
+    print_i64(variable, runtime)
+}
