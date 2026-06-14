@@ -29,6 +29,8 @@ pub enum TokenKind {
     #[display("{_0}")]
     Integer(u64),
 
+    #[display("_")]
+    Placeholder,
     #[display("fn")]
     FnKeyword,
     #[display("type")]
@@ -208,6 +210,7 @@ impl<'source> Lexer<'source> {
                         }
 
                         match name.as_str() {
+                            "_" => TokenKind::Placeholder,
                             "fn" => TokenKind::FnKeyword,
                             "type" => TokenKind::TypeKeyword,
                             "let" => TokenKind::LetKeyword,
