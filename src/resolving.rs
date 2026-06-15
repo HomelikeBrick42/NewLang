@@ -585,29 +585,35 @@ fn resolve_type<'ast>(
             }
         },
 
-        ast::TypeKind::Builtin(ref builtin_type) => match *builtin_type {
-            ast::BuiltinType::Unit => *program.builtin_types[it::BuiltinType::Unit]
-                .get_or_insert_with(|| {
-                    program.types.insert(it::Type {
+        ast::TypeKind::DeclareBuiltin(ref builtin_type) => {
+            let (builtin_type, kind) = match *builtin_type {
+                ast::BuiltinType::Unit => (it::BuiltinType::Unit, it::TypeKind::Unit),
+                ast::BuiltinType::Runtime => (it::BuiltinType::Runtime, it::TypeKind::Runtime),
+                ast::BuiltinType::I64 => (it::BuiltinType::I64, it::TypeKind::I64),
+            };
+            match program.builtin_types[builtin_type] {
+                Some(_) => panic!("{}: Cannot redeclare builtin type {kind:?}", typ.location),
+                ref mut builtin_type => {
+                    let id = program.types.insert(it::Type {
                         location: typ.location,
-                        kind: it::TypeKind::Unit,
-                    })
-                }),
-            ast::BuiltinType::Runtime => *program.builtin_types[it::BuiltinType::Runtime]
-                .get_or_insert_with(|| {
-                    program.types.insert(it::Type {
-                        location: typ.location,
-                        kind: it::TypeKind::Runtime,
-                    })
-                }),
-            ast::BuiltinType::I64 => *program.builtin_types[it::BuiltinType::I64]
-                .get_or_insert_with(|| {
-                    program.types.insert(it::Type {
-                        location: typ.location,
-                        kind: it::TypeKind::I64,
-                    })
-                }),
-        },
+                        kind,
+                    });
+                    *builtin_type = Some(id);
+                    id
+                }
+            }
+        }
+
+        ast::TypeKind::Builtin(ref builtin_type) => {
+            match *builtin_type {
+                ast::BuiltinType::Unit => program.builtin_types[it::BuiltinType::Unit]
+                    .expect("Unit builtin type not defined"),
+                ast::BuiltinType::Runtime => program.builtin_types[it::BuiltinType::Runtime]
+                    .expect("Runtime builtin type not defined"),
+                ast::BuiltinType::I64 => program.builtin_types[it::BuiltinType::I64]
+                    .expect("I64 builtin type not defined"),
+            }
+        }
     })
 }
 

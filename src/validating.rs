@@ -41,7 +41,7 @@ pub fn validate_item(
                     } else if builtin {
                         ast::Type {
                             location,
-                            kind: ast::TypeKind::Builtin(match name.as_str() {
+                            kind: ast::TypeKind::DeclareBuiltin(match name.as_str() {
                                 "Unit" => ast::BuiltinType::Unit,
                                 "Runtime" => ast::BuiltinType::Runtime,
                                 "I64" => ast::BuiltinType::I64,

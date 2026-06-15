@@ -117,6 +117,7 @@ pub struct Type {
 pub enum TypeKind {
     Infer,
     Name(InternedStr),
+    DeclareBuiltin(BuiltinType),
     Builtin(BuiltinType),
 }
 
