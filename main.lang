@@ -1,8 +1,8 @@
 #[builtin]
-type Runtime
+type Unit
 
 #[builtin]
-type Unit
+type Runtime
 
 #[builtin]
 type I64

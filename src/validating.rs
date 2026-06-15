@@ -97,7 +97,7 @@ pub fn validate_item(
                         validate_type(&return_type.typ)?
                     } else {
                         ast::Type {
-                            location,
+                            location: parameters.close_parenthesis_token.location,
                             kind: ast::TypeKind::Builtin(ast::BuiltinType::Unit),
                         }
                     },
@@ -343,7 +343,10 @@ pub enum ValidatingErrorKind {
     TypeAliasMustBeAssignedType,
     #[display("A function must have a function body")]
     FunctionMustHaveBody,
+    #[display("Expected an expression")]
     ExpectedExpression,
+    #[display("Expected a pattern")]
     ExpectedPattern,
+    #[display("Expected a type")]
     ExpectedType,
 }

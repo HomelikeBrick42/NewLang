@@ -5,8 +5,10 @@ edition = "2024"
 
 [dependencies]
 derive_more = { version = "2.1.1", features = ["debug", "display"] }
+enum-map = "2.7.3"
 lasso = { version = "0.7.3", features = ["multi-threaded"] }
 rustc-hash = "2.1.2"
+slotmap = "1.1.1"
 
 [lints]
 rust.elided_lifetimes_in_paths = "deny"

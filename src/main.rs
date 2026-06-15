@@ -1,10 +1,15 @@
-use crate::{interning::InternedStr, parsing::parse_file, validating::validate_item};
+use crate::{
+    interning::InternedStr, parsing::parse_file, resolving::resolve_program,
+    validating::validate_item,
+};
 use std::process::ExitCode;
 
 pub mod ast;
+pub mod inferring_tree;
 pub mod interning;
 pub mod lexer;
 pub mod parsing;
+pub mod resolving;
 pub mod syntax_tree;
 pub mod validating;
 
@@ -53,6 +58,19 @@ fn main() -> ExitCode {
     };
     drop(syntax_items);
 
-    println!("{ast_items:#?}");
+    let inferring_program = {
+        let mut errors = vec![];
+        let program = resolve_program(&ast_items, &mut errors);
+        if !errors.is_empty() {
+            for error in errors {
+                eprintln!("{error}");
+            }
+            return ExitCode::FAILURE;
+        }
+        program
+    };
+    drop(ast_items);
+
+    println!("{inferring_program:#?}");
     ExitCode::SUCCESS
 }
