@@ -214,7 +214,7 @@ fn resolve_item<'ast>(
                         }
                     })
                 })
-                .collect::<Result<_, ResolvingError>>()?;
+                .collect::<Result<Box<[_]>, ResolvingError>>()?;
             let return_type = resolve_type(
                 return_type,
                 program,
@@ -223,16 +223,31 @@ fn resolve_item<'ast>(
                 &names,
             )?;
 
-            let function_id = program.functions.insert_with_key(|id| it::Function {
-                location: item.location,
-                name: Some(name),
-                parameters,
-                return_type,
-                function_type: program.types.insert(it::Type {
+            let function_id = program.functions.insert_with_key(|id| {
+                let function_type = program.types.insert(it::Type {
                     location: item.location,
-                    kind: it::TypeKind::Function(id),
-                }),
+                    kind: it::TypeKind::FunctionItem {
+                        function: id,
+                        parameters: parameters
+                            .iter()
+                            .map(|parameter| match parameter.kind {
+                                it::ParameterKind::Value { typ } => {
+                                    it::ParameterType::Value { typ }
+                                }
+                            })
+                            .collect(),
+                        return_type,
+                    },
+                });
+                it::Function {
+                    location: item.location,
+                    name: Some(name),
+                    parameters,
+                    return_type,
+                    function_type,
+                }
             });
+
             match *body {
                 ast::FunctionBody::Expression(ref expression) => {
                     delayed_resolutions.push_back(DelayedResolution::FunctionBody {
@@ -338,7 +353,7 @@ fn resolve_expression<'ast>(
             location: expression.location,
             typ: program.types.insert(it::Type {
                 location: expression.location,
-                kind: it::TypeKind::Infer,
+                kind: it::TypeKind::Infer(it::InferTypeKind::Anything),
             }),
             kind: it::ExpressionKind::Integer(value),
         },
@@ -399,7 +414,7 @@ fn resolve_expression<'ast>(
             location: expression.location,
             typ: program.types.insert(it::Type {
                 location: expression.location,
-                kind: it::TypeKind::Infer,
+                kind: it::TypeKind::Infer(it::InferTypeKind::Anything),
             }),
             kind: it::ExpressionKind::Call {
                 operand: Box::new(resolve_expression(
@@ -461,7 +476,7 @@ fn resolve_pattern<'ast>(
             location: pattern.location,
             typ: program.types.insert(it::Type {
                 location: pattern.location,
-                kind: it::TypeKind::Infer,
+                kind: it::TypeKind::Infer(it::InferTypeKind::Anything),
             }),
             kind: it::PatternKind::Integer(value),
         },
@@ -538,7 +553,7 @@ fn resolve_type<'ast>(
     Ok(match typ.kind {
         ast::TypeKind::Infer => program.types.insert(it::Type {
             location: typ.location,
-            kind: it::TypeKind::Infer,
+            kind: it::TypeKind::Infer(it::InferTypeKind::Anything),
         }),
 
         ast::TypeKind::Name(name) => match resolve_name(

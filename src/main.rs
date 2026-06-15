@@ -1,10 +1,15 @@
 use crate::{
-    interning::InternedStr, parsing::parse_file, resolving::resolve_program,
+    inferring::{InferringErrorKind, infer_program},
+    inferring_tree as it,
+    interning::InternedStr,
+    parsing::parse_file,
+    resolving::resolve_program,
     validating::validate_item,
 };
 use std::process::ExitCode;
 
 pub mod ast;
+pub mod inferring;
 pub mod inferring_tree;
 pub mod interning;
 pub mod lexer;
@@ -58,7 +63,7 @@ fn main() -> ExitCode {
     };
     drop(syntax_items);
 
-    let inferring_program = {
+    let mut inferring_program = {
         let mut errors = vec![];
         let program = resolve_program(&ast_items, &mut errors);
         if !errors.is_empty() {
@@ -70,6 +75,63 @@ fn main() -> ExitCode {
         program
     };
     drop(ast_items);
+
+    {
+        let mut errors = vec![];
+        infer_program(&mut inferring_program, &mut errors);
+        if !errors.is_empty() {
+            for error in errors {
+                eprint!("{}: ", error.location);
+                match error.kind {
+                    InferringErrorKind::ExpectedTypeButGotType {
+                        expected_id,
+                        got_id,
+                    } => {
+                        eprintln!(
+                            "Expected type {} but got type {}",
+                            it::PrettyPrintType {
+                                id: expected_id,
+                                types: &inferring_program.types
+                            },
+                            it::PrettyPrintType {
+                                id: got_id,
+                                types: &inferring_program.types
+                            },
+                        );
+                        eprintln!(
+                            "NOTE: Expected type declared at {}",
+                            inferring_program.types[expected_id].location,
+                        );
+                        eprintln!(
+                            "NOTE: Got type declared at {}",
+                            inferring_program.types[got_id].location,
+                        );
+                    }
+                }
+            }
+            return ExitCode::FAILURE;
+        }
+    }
+
+    {
+        let mut was_error = false;
+        for (id, typ) in &inferring_program.types {
+            if let it::TypeKind::Infer(_) = typ.kind {
+                was_error = true;
+                eprintln!(
+                    "{}: Unable to infer type, only got as far as {}",
+                    typ.location,
+                    it::PrettyPrintType {
+                        id,
+                        types: &inferring_program.types
+                    },
+                );
+            }
+        }
+        if was_error {
+            return ExitCode::FAILURE;
+        }
+    }
 
     println!("{inferring_program:#?}");
     ExitCode::SUCCESS

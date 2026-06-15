@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::{interning::InternedStr, lexer::SourceLocation};
 use enum_map::{Enum, EnumMap};
 use slotmap::{SecondaryMap, SlotMap, new_key_type};
@@ -149,10 +151,114 @@ pub struct Type {
 #[derive(Debug)]
 pub enum TypeKind {
     Resolving,
-    Infer,
+    Infer(InferTypeKind),
     Inferred(TypeId),
     Unit,
     Runtime,
     I64,
-    Function(FunctionId),
+    FunctionItem {
+        function: FunctionId,
+        parameters: Box<[ParameterType]>,
+        return_type: TypeId,
+    },
+}
+
+#[derive(Debug)]
+pub enum InferTypeKind {
+    Anything,
+    FunctionLike {
+        parameters: Box<[ParameterType]>,
+        return_type: TypeId,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum ParameterType {
+    Value { typ: TypeId },
+}
+
+pub struct PrettyPrintType<'a> {
+    pub id: TypeId,
+    pub types: &'a SlotMap<TypeId, Type>,
+}
+
+impl Display for PrettyPrintType<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.types[self.id].kind {
+            TypeKind::Resolving => write!(f, "{{resolving}}"),
+            TypeKind::Infer(ref infer_type_kind) => match *infer_type_kind {
+                InferTypeKind::Anything => write!(f, "_"),
+                InferTypeKind::FunctionLike {
+                    ref parameters,
+                    return_type,
+                } => {
+                    write!(f, "fn(")?;
+                    for (i, parameter) in parameters.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        match *parameter {
+                            ParameterType::Value { typ } => write!(
+                                f,
+                                "_: {}",
+                                PrettyPrintType {
+                                    id: typ,
+                                    types: self.types,
+                                },
+                            )?,
+                        }
+                    }
+                    write!(
+                        f,
+                        ") -> {}",
+                        PrettyPrintType {
+                            id: return_type,
+                            types: self.types,
+                        },
+                    )
+                }
+            },
+            TypeKind::Inferred(id) => write!(
+                f,
+                "{}",
+                PrettyPrintType {
+                    id,
+                    types: self.types,
+                },
+            ),
+            TypeKind::Unit => write!(f, "Unit"),
+            TypeKind::Runtime => write!(f, "Runtime"),
+            TypeKind::I64 => write!(f, "I64"),
+            TypeKind::FunctionItem {
+                function: _,
+                ref parameters,
+                return_type,
+            } => {
+                write!(f, "fn_item(")?;
+                for (i, parameter) in parameters.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    match *parameter {
+                        ParameterType::Value { typ } => write!(
+                            f,
+                            "_: {}",
+                            PrettyPrintType {
+                                id: typ,
+                                types: self.types,
+                            },
+                        )?,
+                    }
+                }
+                write!(
+                    f,
+                    ") -> {}",
+                    PrettyPrintType {
+                        id: return_type,
+                        types: self.types,
+                    },
+                )
+            }
+        }
+    }
 }
