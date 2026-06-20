@@ -46,7 +46,7 @@ type OutRef['a, type T] = ...
 
 ```rust
 // unlike rust, enums with data use the same syntax as structs
-enum Option[T] {
+enum Option[type T] {
     some: T,
     none, // : Unit can be inferred
 }
@@ -66,7 +66,7 @@ let baz = Option::none {} // same as above, syntax sugar for constructing a vari
 
 ```rust
 // "traits" are just regular structs
-struct Clone[T] {
+struct Clone[type T] {
     // `self` isnt a special name here
     clone: fn(self: &shared imm T) -> T,
 }
@@ -162,4 +162,17 @@ fn identity[type T](value: T) -> T {
     value
 }
 call_function(identity) // passing a generic function as a parameter
+```
+
+## Generic type parameters
+
+```rust
+fn foo(type[type T] Bar) {
+    // you can pass any type as the argument
+    let a: Bar[I32]
+    let b: Bar[I64]
+}
+
+// sort of like passing a closure that takes a type T and gives a new type, which in this case is Option[T]
+foo(type[type T] Option[T])
 ```
