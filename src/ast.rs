@@ -37,7 +37,7 @@ pub enum FunctionBody {
     Builtin(BuiltinFunctionBody),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum BuiltinFunctionBody {
     PrintI64,
 }

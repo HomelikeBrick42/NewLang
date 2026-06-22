@@ -259,12 +259,10 @@ fn resolve_item<'ast>(
                     });
                 }
 
-                ast::FunctionBody::Builtin(ref builtin_function_body) => {
+                ast::FunctionBody::Builtin(builtin_function_body) => {
                     program.function_bodies.insert(
                         function_id,
-                        it::FunctionBody::Builtin(match *builtin_function_body {
-                            ast::BuiltinFunctionBody::PrintI64 => it::BuiltinFunctionBody::PrintI64,
-                        }),
+                        it::FunctionBody::Builtin(builtin_function_body),
                     );
                 }
             }

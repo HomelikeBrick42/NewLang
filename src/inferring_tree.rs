@@ -1,8 +1,7 @@
-use std::fmt::Display;
-
-use crate::{interning::InternedStr, lexer::SourceLocation};
+use crate::{ast, interning::InternedStr, lexer::SourceLocation};
 use enum_map::{Enum, EnumMap};
 use slotmap::{SecondaryMap, SlotMap, new_key_type};
+use std::fmt::Display;
 
 #[derive(Debug)]
 pub struct Program {
@@ -51,12 +50,7 @@ pub enum FunctionBody {
         parameter_variables: Box<[Option<VariableId>]>,
         expression: Box<Expression>,
     },
-    Builtin(BuiltinFunctionBody),
-}
-
-#[derive(Debug)]
-pub enum BuiltinFunctionBody {
-    PrintI64,
+    Builtin(ast::BuiltinFunctionBody),
 }
 
 new_key_type! {
