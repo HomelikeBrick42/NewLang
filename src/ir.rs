@@ -71,6 +71,9 @@ pub enum InstructionKind {
         destination: VariableId,
         value: i64,
     },
+    ConstantFunctionItem {
+        destination: VariableId,
+    },
     PrintI64(VariableId),
 }
 

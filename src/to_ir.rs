@@ -400,11 +400,20 @@ pub fn emit_place_copy(
 ) -> Result<ir::VariableId, ToIrError> {
     let typ = convert_type(typ, ir_program, inferring_program)?;
     Ok(match *kind {
-        it::PlaceKind::Function(_) => variables.insert(ir::Variable {
-            location,
-            name: None,
-            typ,
-        }),
+        it::PlaceKind::Function(_) => {
+            let variable = variables.insert(ir::Variable {
+                location,
+                name: None,
+                typ,
+            });
+            blocks[*current_block].instructions.push(ir::Instruction {
+                location,
+                kind: ir::InstructionKind::ConstantFunctionItem {
+                    destination: variable,
+                },
+            });
+            variable
+        }
 
         it::PlaceKind::Variable(id) => {
             let variable = inferring_variables_map[id];
