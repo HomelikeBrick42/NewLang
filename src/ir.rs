@@ -74,7 +74,12 @@ pub enum InstructionKind {
     ConstantFunctionItem {
         destination: VariableId,
     },
-    PrintI64(VariableId),
+    AssumeInit {
+        variable: VariableId,
+    },
+    PrintI64 {
+        variable: VariableId,
+    },
 }
 
 #[derive(Debug)]

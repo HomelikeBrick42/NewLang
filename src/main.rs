@@ -7,6 +7,7 @@ use crate::{
     interning::InternedStr,
     parsing::parse_file,
     resolving::resolve_program,
+    semantic_analysis::analyze_function,
     to_ir::{ToIrError, ToIrErrorKind, convert_function, convert_type},
     validating::validate_item,
 };
@@ -20,6 +21,7 @@ pub mod ir;
 pub mod lexer;
 pub mod parsing;
 pub mod resolving;
+pub mod semantic_analysis;
 pub mod syntax_tree;
 pub mod to_ir;
 pub mod validating;
@@ -153,7 +155,6 @@ fn main() -> ExitCode {
             was_error = true;
             eprint!("{}: ", error.location);
             match error.kind {
-                ToIrErrorKind::CyclicDependency => eprintln!("Cyclic dependency detected"),
                 ToIrErrorKind::ExpectedTypeButGotType {
                     expected: expected_id,
                     got: got_id,
@@ -215,6 +216,29 @@ fn main() -> ExitCode {
     }
     drop(inferring_program);
 
+    {
+        let mut errors = vec![];
+
+        for (id, _) in &ir_program.functions {
+            analyze_function(id, &ir_program, &mut errors);
+        }
+
+        if !errors.is_empty() {
+            for error in errors {
+                eprint!("{}: ", error.location);
+                match error.kind {
+                    semantic_analysis::SemanticAnalysisErrorKind::VariableUninitialized {
+                        variable_location,
+                    } => {
+                        eprintln!("Variable is uninitialized");
+                        eprintln!("    NOTE: Variable declared at {variable_location}");
+                    }
+                }
+            }
+            return ExitCode::FAILURE;
+        }
+    }
+
     for (id, function) in &ir_program.functions {
         print!("{id:?} = fn {}(", function.name.unwrap_or("_".into()));
         match function.body {
@@ -235,7 +259,8 @@ fn main() -> ExitCode {
                 println!(") {{");
 
                 for (id, variable) in variables {
-                    println!("    {id:?} = {variable:?}");
+                    println!("    // {:?}", variable.location);
+                    println!("    {id:?} = {:?}", variable.typ);
                 }
                 println!();
 
@@ -245,9 +270,12 @@ fn main() -> ExitCode {
                 for (id, block) in blocks {
                     println!("    {id:?} = {{");
                     for instruction in &block.instructions {
-                        println!("        {instruction:?}");
+                        println!("        // {:?}", instruction.location);
+                        println!("        {:?}", instruction.kind);
                     }
-                    println!("        {:?}", block.jump);
+                    println!();
+                    println!("        // {:?}", block.jump.location);
+                    println!("        {:?}", block.jump.kind);
                     println!("    }}");
                     println!();
                 }

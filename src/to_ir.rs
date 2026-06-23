@@ -160,10 +160,20 @@ pub fn convert_function(
 
                 let mut blocks = SlotMap::with_key();
                 let entry_block = blocks.insert(ir::Block {
-                    instructions: vec![ir::Instruction {
-                        location: function.location,
-                        kind: ir::InstructionKind::PrintI64(i64_value),
-                    }],
+                    instructions: vec![
+                        ir::Instruction {
+                            location: function.location,
+                            kind: ir::InstructionKind::PrintI64 {
+                                variable: i64_value,
+                            },
+                        },
+                        ir::Instruction {
+                            location: function.location,
+                            kind: ir::InstructionKind::AssumeInit {
+                                variable: unit_value,
+                            },
+                        },
+                    ],
                     jump: ir::Jump {
                         location: function.location,
                         kind: ir::JumpKind::Return {
@@ -587,7 +597,6 @@ pub struct ToIrError {
 
 #[derive(Debug)]
 pub enum ToIrErrorKind {
-    CyclicDependency,
     ExpectedTypeButGotType {
         expected: ir::TypeId,
         got: ir::TypeId,
