@@ -276,6 +276,7 @@ pub fn emit_expression(
         }
 
         it::ExpressionKind::Block {
+            end_location,
             ref statements,
             ref last_expression,
         } => {
@@ -310,7 +311,7 @@ pub fn emit_expression(
 
             for variable in scope_variables.into_iter().rev() {
                 blocks[*current_block].instructions.push(ir::Instruction {
-                    location,
+                    location: end_location,
                     kind: ir::InstructionKind::StorageDead { variable },
                 });
             }

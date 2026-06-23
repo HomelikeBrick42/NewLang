@@ -69,6 +69,7 @@ pub enum ExpressionKind {
     Place(Box<Place>),
     Integer(u64),
     Block {
+        end_location: SourceLocation,
         statements: Box<[Statement]>,
         last_expression: Box<Expression>,
     },

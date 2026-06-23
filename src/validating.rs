@@ -162,7 +162,7 @@ pub fn validate_expression(
             st::ExpressionKind::Block {
                 open_brace_token: _,
                 statements,
-                close_brace_token: _,
+                close_brace_token,
             } => {
                 let mut statements = statements.iter().map(validate_statement).collect::<Result<
                     Vec<_>,
@@ -182,6 +182,7 @@ pub fn validate_expression(
                 };
 
                 ast::ExpressionKind::Block {
+                    end_location: close_brace_token.location,
                     statements: statements.into_boxed_slice(),
                     last_expression,
                 }

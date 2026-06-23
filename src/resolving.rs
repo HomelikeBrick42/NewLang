@@ -357,6 +357,7 @@ fn resolve_expression<'ast>(
         },
 
         ast::ExpressionKind::Block {
+            end_location,
             ref statements,
             ref last_expression,
         } => {
@@ -399,6 +400,7 @@ fn resolve_expression<'ast>(
                 location: expression.location,
                 typ: last_expression.typ,
                 kind: it::ExpressionKind::Block {
+                    end_location,
                     statements,
                     last_expression,
                 },

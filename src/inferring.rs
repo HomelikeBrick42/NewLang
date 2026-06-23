@@ -69,6 +69,7 @@ pub fn infer_expression(
         ExpressionKind::Integer(_) => {}
 
         ExpressionKind::Block {
+            end_location: _,
             ref statements,
             ref last_expression,
         } => {

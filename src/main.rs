@@ -7,7 +7,7 @@ use crate::{
     interning::InternedStr,
     parsing::parse_file,
     resolving::resolve_program,
-    semantic_analysis::analyze_function,
+    semantic_analysis::{SemanticAnalysisErrorKind, analyze_function},
     to_ir::{ToIrError, ToIrErrorKind, convert_function, convert_type},
     validating::validate_item,
 };
@@ -227,9 +227,7 @@ fn main() -> ExitCode {
             for error in errors {
                 eprint!("{}: ", error.location);
                 match error.kind {
-                    semantic_analysis::SemanticAnalysisErrorKind::VariableUninitialized {
-                        variable_location,
-                    } => {
+                    SemanticAnalysisErrorKind::VariableUninitialized { variable_location } => {
                         eprintln!("Variable is uninitialized");
                         eprintln!("    NOTE: Variable declared at {variable_location}");
                     }
@@ -267,17 +265,21 @@ fn main() -> ExitCode {
                 println!("    entry = {entry_block:?}");
                 println!();
 
-                for (id, block) in blocks {
+                for (i, (id, block)) in blocks.iter().enumerate() {
+                    if i > 0 {
+                        println!();
+                    }
+
                     println!("    {id:?} = {{");
                     for instruction in &block.instructions {
                         println!("        // {:?}", instruction.location);
                         println!("        {:?}", instruction.kind);
                     }
                     println!();
+
                     println!("        // {:?}", block.jump.location);
                     println!("        {:?}", block.jump.kind);
                     println!("    }}");
-                    println!();
                 }
 
                 println!("}}");
@@ -286,5 +288,6 @@ fn main() -> ExitCode {
         println!();
     }
 
+    drop(ir_program);
     ExitCode::SUCCESS
 }
