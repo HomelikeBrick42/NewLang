@@ -63,7 +63,7 @@ pub struct Instruction {
 
 #[derive(Debug)]
 pub enum InstructionKind {
-    Copy {
+    Move {
         source: VariableId,
         destination: VariableId,
     },
@@ -75,6 +75,9 @@ pub enum InstructionKind {
         destination: VariableId,
     },
     AssumeInit {
+        variable: VariableId,
+    },
+    StorageDead {
         variable: VariableId,
     },
     PrintI64 {

@@ -69,7 +69,7 @@ pub fn analyze_function(
                 let block = &blocks[current_block];
                 for instruction in &block.instructions {
                     match instruction.kind {
-                        ir::InstructionKind::Copy {
+                        ir::InstructionKind::Move {
                             source,
                             destination,
                         } => {
@@ -108,6 +108,10 @@ pub fn analyze_function(
                                 &variable_initialization,
                                 errors,
                             );
+                        }
+
+                        ir::InstructionKind::StorageDead { variable } => {
+                            variable_initialization[variable] = false;
                         }
                     }
                 }

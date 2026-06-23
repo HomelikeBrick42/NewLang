@@ -65,23 +65,38 @@ pub fn convert_function(
             });
 
             let mut current_block = entry_block;
+            let mut scope_variables = vec![];
             let expression_result = emit_expression(
                 expression,
                 ir_program,
                 inferring_program,
                 &mut variables,
                 &inferring_variables_map,
+                &mut scope_variables,
                 &mut blocks,
                 &mut current_block,
             )?;
 
             blocks[current_block].instructions.push(ir::Instruction {
                 location: function.location,
-                kind: ir::InstructionKind::Copy {
+                kind: ir::InstructionKind::Move {
                     source: expression_result,
                     destination: return_variable,
                 },
             });
+            blocks[current_block].instructions.push(ir::Instruction {
+                location: function.location,
+                kind: ir::InstructionKind::StorageDead {
+                    variable: expression_result,
+                },
+            });
+
+            for variable in scope_variables.into_iter().rev() {
+                blocks[current_block].instructions.push(ir::Instruction {
+                    location: function.location,
+                    kind: ir::InstructionKind::StorageDead { variable },
+                });
+            }
 
             ir::FunctionBody::Body {
                 variables,
@@ -173,6 +188,18 @@ pub fn convert_function(
                                 variable: unit_value,
                             },
                         },
+                        ir::Instruction {
+                            location: function.location,
+                            kind: ir::InstructionKind::StorageDead {
+                                variable: i64_value,
+                            },
+                        },
+                        ir::Instruction {
+                            location: function.location,
+                            kind: ir::InstructionKind::StorageDead {
+                                variable: runtime_value,
+                            },
+                        },
                     ],
                     jump: ir::Jump {
                         location: function.location,
@@ -204,18 +231,20 @@ pub fn emit_expression(
     inferring_program: &it::Program,
     variables: &mut SlotMap<ir::VariableId, ir::Variable>,
     inferring_variables_map: &SecondaryMap<it::VariableId, ir::VariableId>,
+    scope_variables: &mut Vec<ir::VariableId>,
     blocks: &mut SlotMap<ir::BlockId, ir::Block>,
     current_block: &mut ir::BlockId,
 ) -> Result<ir::VariableId, ToIrError> {
     let typ = convert_type(typ, ir_program, inferring_program)?;
     Ok(match *kind {
         it::ExpressionKind::Place(ref place) => {
-            return emit_place_copy(
+            return emit_place_move(
                 place,
                 ir_program,
                 inferring_program,
                 variables,
                 inferring_variables_map,
+                scope_variables,
                 blocks,
                 current_block,
             );
@@ -250,6 +279,8 @@ pub fn emit_expression(
             ref statements,
             ref last_expression,
         } => {
+            let mut scope_variables = vec![];
+
             for statement in statements {
                 emit_statement(
                     statement,
@@ -257,6 +288,7 @@ pub fn emit_expression(
                     inferring_program,
                     variables,
                     inferring_variables_map,
+                    &mut scope_variables,
                     blocks,
                     current_block,
                 )?;
@@ -265,15 +297,25 @@ pub fn emit_expression(
             let last_expression_type =
                 convert_type(last_expression.typ, ir_program, inferring_program)?;
             expect_types_same(location, last_expression_type, typ)?;
-            emit_expression(
+            let result = emit_expression(
                 last_expression,
                 ir_program,
                 inferring_program,
                 variables,
                 inferring_variables_map,
+                &mut scope_variables,
                 blocks,
                 current_block,
-            )?
+            )?;
+
+            for variable in scope_variables.into_iter().rev() {
+                blocks[*current_block].instructions.push(ir::Instruction {
+                    location,
+                    kind: ir::InstructionKind::StorageDead { variable },
+                });
+            }
+
+            result
         }
 
         it::ExpressionKind::Call {
@@ -288,6 +330,7 @@ pub fn emit_expression(
                 inferring_program,
                 variables,
                 inferring_variables_map,
+                scope_variables,
                 blocks,
                 current_block,
             )?;
@@ -303,13 +346,14 @@ pub fn emit_expression(
                                 inferring_program,
                                 variables,
                                 inferring_variables_map,
+                                scope_variables,
                                 blocks,
                                 current_block,
                             )?,
                         },
                     })
                 })
-                .collect::<Result<_, ToIrError>>()?;
+                .collect::<Result<Box<[_]>, ToIrError>>()?;
 
             let return_variable = variables.insert(ir::Variable {
                 location,
@@ -325,7 +369,24 @@ pub fn emit_expression(
                 },
             );
             let return_to = blocks.insert(ir::Block {
-                instructions: vec![],
+                instructions: {
+                    let mut instructions = vec![];
+                    for argument in arguments.iter().rev() {
+                        match *argument {
+                            ir::Argument::Value { variable } => {
+                                instructions.push(ir::Instruction {
+                                    location,
+                                    kind: ir::InstructionKind::StorageDead { variable },
+                                });
+                            }
+                        }
+                    }
+                    instructions.push(ir::Instruction {
+                        location,
+                        kind: ir::InstructionKind::StorageDead { variable: operand },
+                    });
+                    instructions
+                },
                 jump: final_jump,
             });
             blocks[*current_block].jump.kind = ir::JumpKind::Call {
@@ -342,36 +403,51 @@ pub fn emit_expression(
 }
 
 pub fn emit_statement(
-    &it::Statement {
-        #[expect(unused)]
-        location,
-        ref kind,
-    }: &it::Statement,
+    &it::Statement { location, ref kind }: &it::Statement,
     ir_program: &mut ir::Program,
     inferring_program: &it::Program,
     variables: &mut SlotMap<ir::VariableId, ir::Variable>,
     inferring_variables_map: &SecondaryMap<it::VariableId, ir::VariableId>,
+    scope_variables: &mut Vec<ir::VariableId>,
     blocks: &mut SlotMap<ir::BlockId, ir::Block>,
     current_block: &mut ir::BlockId,
 ) -> Result<(), ToIrError> {
     match *kind {
         it::StatementKind::Expression(ref expression)
             if let it::ExpressionKind::Place(ref place) = expression.kind
-                && let it::PlaceKind::Let(_) = place.kind =>
+                && let it::PlaceKind::Let(variable) = place.kind =>
         {
-            // no instructions need to be emitted
+            let variable = inferring_variables_map[variable];
+
+            expect_types_same(
+                location,
+                convert_type(expression.typ, ir_program, inferring_program)?,
+                variables[variable].typ,
+            )?;
+            expect_types_same(
+                location,
+                convert_type(place.typ, ir_program, inferring_program)?,
+                variables[variable].typ,
+            )?;
+
+            scope_variables.push(variable);
         }
 
         it::StatementKind::Expression(ref expression) => {
-            emit_expression(
+            let result = emit_expression(
                 expression,
                 ir_program,
                 inferring_program,
                 variables,
                 inferring_variables_map,
+                scope_variables,
                 blocks,
                 current_block,
             )?;
+            blocks[*current_block].instructions.push(ir::Instruction {
+                location,
+                kind: ir::InstructionKind::StorageDead { variable: result },
+            });
         }
 
         it::StatementKind::Assignment {
@@ -384,6 +460,7 @@ pub fn emit_statement(
                 inferring_program,
                 variables,
                 inferring_variables_map,
+                scope_variables,
                 blocks,
                 current_block,
             )?;
@@ -394,15 +471,20 @@ pub fn emit_statement(
                 inferring_program,
                 variables,
                 inferring_variables_map,
+                scope_variables,
                 blocks,
                 current_block,
             )?;
+            blocks[*current_block].instructions.push(ir::Instruction {
+                location,
+                kind: ir::InstructionKind::StorageDead { variable: value },
+            });
         }
     }
     Ok(())
 }
 
-pub fn emit_place_copy(
+pub fn emit_place_move(
     &it::Place {
         location,
         typ,
@@ -412,6 +494,7 @@ pub fn emit_place_copy(
     inferring_program: &it::Program,
     variables: &mut SlotMap<ir::VariableId, ir::Variable>,
     inferring_variables_map: &SecondaryMap<it::VariableId, ir::VariableId>,
+    scope_variables: &mut Vec<ir::VariableId>,
     blocks: &mut SlotMap<ir::BlockId, ir::Block>,
     current_block: &mut ir::BlockId,
 ) -> Result<ir::VariableId, ToIrError> {
@@ -443,7 +526,7 @@ pub fn emit_place_copy(
             });
             blocks[*current_block].instructions.push(ir::Instruction {
                 location,
-                kind: ir::InstructionKind::Copy {
+                kind: ir::InstructionKind::Move {
                     source: variable,
                     destination: copy,
                 },
@@ -455,6 +538,8 @@ pub fn emit_place_copy(
             let variable = inferring_variables_map[id];
             expect_types_same(location, typ, variables[variable].typ)?;
 
+            scope_variables.push(variable);
+
             let copy = variables.insert(ir::Variable {
                 location,
                 name: None,
@@ -462,7 +547,7 @@ pub fn emit_place_copy(
             });
             blocks[*current_block].instructions.push(ir::Instruction {
                 location,
-                kind: ir::InstructionKind::Copy {
+                kind: ir::InstructionKind::Move {
                     source: variable,
                     destination: copy,
                 },
@@ -483,6 +568,7 @@ pub fn assign_pattern(
     inferring_program: &it::Program,
     variables: &mut SlotMap<ir::VariableId, ir::Variable>,
     inferring_variables_map: &SecondaryMap<it::VariableId, ir::VariableId>,
+    scope_variables: &mut Vec<ir::VariableId>,
     blocks: &mut SlotMap<ir::BlockId, ir::Block>,
     current_block: &mut ir::BlockId,
 ) -> Result<(), ToIrError> {
@@ -498,6 +584,7 @@ pub fn assign_pattern(
                 inferring_program,
                 variables,
                 inferring_variables_map,
+                scope_variables,
                 blocks,
                 current_block,
             );
@@ -525,6 +612,7 @@ pub fn assign_place(
     inferring_program: &it::Program,
     variables: &mut SlotMap<ir::VariableId, ir::Variable>,
     inferring_variables_map: &SecondaryMap<it::VariableId, ir::VariableId>,
+    scope_variables: &mut Vec<ir::VariableId>,
     blocks: &mut SlotMap<ir::BlockId, ir::Block>,
     current_block: &mut ir::BlockId,
 ) -> Result<(), ToIrError> {
@@ -542,7 +630,7 @@ pub fn assign_place(
             expect_types_same(location, variables[variable].typ, typ)?;
             blocks[*current_block].instructions.push(ir::Instruction {
                 location,
-                kind: ir::InstructionKind::Copy {
+                kind: ir::InstructionKind::Move {
                     source: value,
                     destination: variable,
                 },
@@ -552,9 +640,12 @@ pub fn assign_place(
         it::PlaceKind::Let(variable) => {
             let variable = inferring_variables_map[variable];
             expect_types_same(location, variables[variable].typ, typ)?;
+
+            scope_variables.push(variable);
+
             blocks[*current_block].instructions.push(ir::Instruction {
                 location,
-                kind: ir::InstructionKind::Copy {
+                kind: ir::InstructionKind::Move {
                     source: value,
                     destination: variable,
                 },
