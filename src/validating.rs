@@ -187,7 +187,7 @@ pub fn validate_expression(
                 }
             }
 
-            st::ExpressionKind::Name { .. } => {
+            st::ExpressionKind::Name { .. } | st::ExpressionKind::Let { .. } => {
                 ast::ExpressionKind::Place(Box::new(validate_place(expression)?))
             }
 
@@ -216,13 +216,6 @@ pub fn validate_expression(
                     })
                     .collect::<Result<_, ValidatingError>>()?,
             },
-
-            st::ExpressionKind::Let { .. } => {
-                return Err(ValidatingError {
-                    location,
-                    kind: ValidatingErrorKind::ExpectedExpression,
-                });
-            }
         },
     })
 }
@@ -239,7 +232,7 @@ pub fn validate_pattern(
                 close_parenthesis_token: _,
             } => return validate_pattern(expression),
 
-            st::ExpressionKind::Name { .. } => {
+            st::ExpressionKind::Name { .. } | st::ExpressionKind::Let { .. } => {
                 ast::PatternKind::Place(Box::new(validate_place(expression)?))
             }
 
@@ -249,27 +242,6 @@ pub fn validate_pattern(
                 };
                 ast::PatternKind::Integer(value)
             }
-
-            st::ExpressionKind::Let {
-                let_token: _,
-                name_token,
-                colon_type,
-            } => ast::PatternKind::Let {
-                name: {
-                    let TokenKind::Name(name) = name_token.kind else {
-                        unreachable!()
-                    };
-                    name
-                },
-                typ: Box::new(if let Some(colon_type) = colon_type {
-                    validate_type(&colon_type.typ)?
-                } else {
-                    ast::Type {
-                        location,
-                        kind: ast::TypeKind::Infer,
-                    }
-                }),
-            },
 
             st::ExpressionKind::Block { .. } | st::ExpressionKind::Call { .. } => {
                 return Err(ValidatingError {
@@ -294,11 +266,31 @@ pub fn validate_place(
                 ast::PlaceKind::Name(name)
             }
 
+            st::ExpressionKind::Let {
+                let_token: _,
+                name_token,
+                colon_type,
+            } => ast::PlaceKind::Let {
+                name: {
+                    let TokenKind::Name(name) = name_token.kind else {
+                        unreachable!()
+                    };
+                    name
+                },
+                typ: Box::new(if let Some(colon_type) = colon_type {
+                    validate_type(&colon_type.typ)?
+                } else {
+                    ast::Type {
+                        location,
+                        kind: ast::TypeKind::Infer,
+                    }
+                }),
+            },
+
             st::ExpressionKind::ParenthesisedExpression { .. }
             | st::ExpressionKind::Block { .. }
             | st::ExpressionKind::Integer { .. }
-            | st::ExpressionKind::Call { .. }
-            | st::ExpressionKind::Let { .. } => unreachable!(),
+            | st::ExpressionKind::Call { .. } => unreachable!(),
         },
     })
 }

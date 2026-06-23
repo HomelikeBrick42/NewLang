@@ -54,13 +54,17 @@ pub fn analyze_function(
                 if let Some(came_from) = came_from {
                     match traversed_edges.entry((came_from, current_block)) {
                         Entry::Vacant(e) => _ = e.insert(false),
-                        Entry::Occupied(mut e) => {
-                            if std::mem::replace(e.get_mut(), true) {
+                        Entry::Occupied(e) => {
+                            if std::mem::replace(e.into_mut(), true) {
                                 continue;
                             }
                         }
                     }
                 }
+
+                // prevent any further code from accidentally using `came_from`
+                #[expect(unused)]
+                let came_from = ();
 
                 let block = &blocks[current_block];
                 for instruction in &block.instructions {

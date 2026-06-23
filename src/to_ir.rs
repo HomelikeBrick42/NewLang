@@ -355,6 +355,13 @@ pub fn emit_statement(
     current_block: &mut ir::BlockId,
 ) -> Result<(), ToIrError> {
     match *kind {
+        it::StatementKind::Expression(ref expression)
+            if let it::ExpressionKind::Place(ref place) = expression.kind
+                && let it::PlaceKind::Let(_) = place.kind =>
+        {
+            // no instructions need to be emitted
+        }
+
         it::StatementKind::Expression(ref expression) => {
             emit_expression(
                 expression,
@@ -443,6 +450,25 @@ pub fn emit_place_copy(
             });
             copy
         }
+
+        it::PlaceKind::Let(id) => {
+            let variable = inferring_variables_map[id];
+            expect_types_same(location, typ, variables[variable].typ)?;
+
+            let copy = variables.insert(ir::Variable {
+                location,
+                name: None,
+                typ,
+            });
+            blocks[*current_block].instructions.push(ir::Instruction {
+                location,
+                kind: ir::InstructionKind::Copy {
+                    source: variable,
+                    destination: copy,
+                },
+            });
+            copy
+        }
     })
 }
 
@@ -483,19 +509,8 @@ pub fn assign_pattern(
                 kind: ToIrErrorKind::PatternNotAssignable,
             });
         }
-
-        it::PatternKind::Let(variable) => {
-            let variable = inferring_variables_map[variable];
-            expect_types_same(location, variables[variable].typ, typ)?;
-            blocks[*current_block].instructions.push(ir::Instruction {
-                location,
-                kind: ir::InstructionKind::Copy {
-                    source: value,
-                    destination: variable,
-                },
-            });
-        }
     }
+    #[expect(unreachable_code)]
     Ok(())
 }
 
@@ -523,6 +538,18 @@ pub fn assign_place(
         }
 
         it::PlaceKind::Variable(variable) => {
+            let variable = inferring_variables_map[variable];
+            expect_types_same(location, variables[variable].typ, typ)?;
+            blocks[*current_block].instructions.push(ir::Instruction {
+                location,
+                kind: ir::InstructionKind::Copy {
+                    source: value,
+                    destination: variable,
+                },
+            });
+        }
+
+        it::PlaceKind::Let(variable) => {
             let variable = inferring_variables_map[variable];
             expect_types_same(location, variables[variable].typ, typ)?;
             blocks[*current_block].instructions.push(ir::Instruction {

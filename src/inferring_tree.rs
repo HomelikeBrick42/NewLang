@@ -116,7 +116,6 @@ pub struct Pattern {
 pub enum PatternKind {
     Place(Box<Place>),
     Integer(u64),
-    Let(VariableId),
 }
 
 #[derive(Debug)]
@@ -130,6 +129,7 @@ pub struct Place {
 pub enum PlaceKind {
     Function(FunctionId),
     Variable(VariableId),
+    Let(VariableId),
 }
 
 new_key_type! {

@@ -87,7 +87,7 @@ pub fn resolve_program(items: &[ast::Item], errors: &mut Vec<ResolvingError>) ->
             match delayed_resolution {
                 DelayedResolution::FunctionBody {
                     function_id,
-                    names,
+                    mut names,
                     mut variables,
                     parameter_variables,
                     expression,
@@ -97,7 +97,7 @@ pub fn resolve_program(items: &[ast::Item], errors: &mut Vec<ResolvingError>) ->
                         &mut program,
                         &mut resolving_items,
                         &mut delayed_resolutions,
-                        &names,
+                        &mut names,
                         &mut variables,
                     ) {
                         Ok(expression) => Box::new(expression),
@@ -327,7 +327,7 @@ fn resolve_expression<'ast>(
     program: &mut it::Program,
     resolving_items: &mut SlotMap<ItemId, Item<'ast>>,
     delayed_resolutions: &mut VecDeque<DelayedResolution<'ast>>,
-    names: &FxHashMap<InternedStr, Name>,
+    names: &mut FxHashMap<InternedStr, Name>,
     variables: &mut SlotMap<it::VariableId, it::Variable>,
 ) -> Result<it::Expression, ResolvingError> {
     Ok(match expression.kind {
@@ -391,7 +391,7 @@ fn resolve_expression<'ast>(
                 program,
                 resolving_items,
                 delayed_resolutions,
-                &names,
+                &mut names,
                 variables,
             )?);
 
@@ -478,21 +478,6 @@ fn resolve_pattern<'ast>(
             }),
             kind: it::PatternKind::Integer(value),
         },
-
-        ast::PatternKind::Let { name, ref typ } => {
-            let typ = resolve_type(typ, program, resolving_items, delayed_resolutions, names)?;
-            let id = variables.insert(it::Variable {
-                location: pattern.location,
-                name: Some(name),
-                typ,
-            });
-            names.insert(name, Name::Variable(id));
-            it::Pattern {
-                location: pattern.location,
-                typ,
-                kind: it::PatternKind::Let(id),
-            }
-        }
     })
 }
 
@@ -501,7 +486,7 @@ fn resolve_place<'ast>(
     program: &mut it::Program,
     resolving_items: &mut SlotMap<ItemId, Item<'ast>>,
     delayed_resolutions: &mut VecDeque<DelayedResolution<'ast>>,
-    names: &FxHashMap<InternedStr, Name>,
+    names: &mut FxHashMap<InternedStr, Name>,
     variables: &mut SlotMap<it::VariableId, it::Variable>,
 ) -> Result<it::Place, ResolvingError> {
     Ok(match place.kind {
@@ -538,6 +523,21 @@ fn resolve_place<'ast>(
                 kind: it::PlaceKind::Variable(id),
             },
         },
+
+        ast::PlaceKind::Let { name, ref typ } => {
+            let typ = resolve_type(typ, program, resolving_items, delayed_resolutions, names)?;
+            let id = variables.insert(it::Variable {
+                location: place.location,
+                name: Some(name),
+                typ,
+            });
+            names.insert(name, Name::Variable(id));
+            it::Place {
+                location: place.location,
+                typ,
+                kind: it::PlaceKind::Let(id),
+            }
+        }
     })
 }
 

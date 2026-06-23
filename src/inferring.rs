@@ -124,8 +124,6 @@ pub fn infer_pattern(
         PatternKind::Place(ref place) => infer_place(place, Some(pattern.typ), types, errors),
 
         PatternKind::Integer(_) => {}
-
-        PatternKind::Let(_) => {}
     }
 }
 
@@ -142,6 +140,7 @@ pub fn infer_place(
     match place.kind {
         PlaceKind::Function(_) => {}
         PlaceKind::Variable(_) => {}
+        PlaceKind::Let(_) => {}
     }
 }
 

@@ -93,7 +93,6 @@ pub struct Pattern {
 pub enum PatternKind {
     Place(Box<Place>),
     Integer(u64),
-    Let { name: InternedStr, typ: Box<Type> },
 }
 
 #[derive(Debug)]
@@ -105,6 +104,7 @@ pub struct Place {
 #[derive(Debug)]
 pub enum PlaceKind {
     Name(InternedStr),
+    Let { name: InternedStr, typ: Box<Type> },
 }
 
 #[derive(Debug)]
