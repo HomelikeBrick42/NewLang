@@ -1,9 +1,11 @@
-use slotmap::{SecondaryMap, SlotMap};
+use std::collections::hash_map::Entry;
 
 use crate::{
     ir::{self, BlockId, FunctionId, Program, Variable, VariableId},
     lexer::SourceLocation,
 };
+use rustc_hash::FxHashMap;
+use slotmap::{SecondaryMap, SlotMap};
 
 pub fn analyze_function(
     function_id: FunctionId,
@@ -21,11 +23,16 @@ pub fn analyze_function(
             entry_block,
         } => {
             struct CheckState {
-                variable_initialization: SecondaryMap<VariableId, bool>,
+                came_from: Option<BlockId>,
                 block: BlockId,
+                traversed_edges: FxHashMap<(BlockId, BlockId), bool>,
+                variable_initialization: SecondaryMap<VariableId, bool>,
             }
 
             let mut check_states = vec![CheckState {
+                came_from: None,
+                block: entry_block,
+                traversed_edges: FxHashMap::default(),
                 variable_initialization: {
                     let mut variable_initialization = SecondaryMap::new();
                     for (id, _) in variables {
@@ -36,14 +43,26 @@ pub fn analyze_function(
                     }
                     variable_initialization
                 },
-                block: entry_block,
             }];
             while let Some(CheckState {
+                came_from,
+                block: current_block,
+                mut traversed_edges,
                 mut variable_initialization,
-                block,
             }) = check_states.pop()
             {
-                let block = &blocks[block];
+                if let Some(came_from) = came_from {
+                    match traversed_edges.entry((came_from, current_block)) {
+                        Entry::Vacant(e) => _ = e.insert(false),
+                        Entry::Occupied(mut e) => {
+                            if std::mem::replace(e.get_mut(), true) {
+                                continue;
+                            }
+                        }
+                    }
+                }
+
+                let block = &blocks[current_block];
                 for instruction in &block.instructions {
                     match instruction.kind {
                         ir::InstructionKind::Copy {
@@ -88,13 +107,16 @@ pub fn analyze_function(
                         }
                     }
                 }
+
                 match block.jump.kind {
                     ir::JumpKind::Unreachable => {}
 
                     ir::JumpKind::Next(block) => {
                         check_states.push(CheckState {
-                            variable_initialization,
+                            came_from: Some(current_block),
                             block,
+                            traversed_edges,
+                            variable_initialization,
                         });
                     }
 
@@ -140,8 +162,10 @@ pub fn analyze_function(
                         variable_initialization[return_variable] = true;
 
                         check_states.push(CheckState {
-                            variable_initialization,
+                            came_from: Some(current_block),
                             block: return_to,
+                            traversed_edges,
+                            variable_initialization,
                         });
                     }
                 }
