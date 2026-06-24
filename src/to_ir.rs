@@ -689,6 +689,8 @@ pub fn assign_pattern(
             });
         }
 
+        it::PatternKind::Discard => {}
+
         it::PatternKind::Deconstructor { ref members } => {
             let member_variables = members
                 .iter()

@@ -567,6 +567,15 @@ fn resolve_pattern<'ast>(
             kind: it::PatternKind::Integer(value),
         },
 
+        ast::PatternKind::Discard => it::Pattern {
+            location: pattern.location,
+            typ: program.types.insert(it::Type {
+                location: pattern.location,
+                kind: it::TypeKind::Infer(it::InferTypeKind::Anything),
+            }),
+            kind: it::PatternKind::Discard,
+        },
+
         ast::PatternKind::Deconstructor {
             ref typ,
             ref members,

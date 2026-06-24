@@ -259,6 +259,14 @@ pub fn parse_statement(lexer: &mut Lexer<'_>) -> Result<Statement, ParsingError>
 
 pub fn parse_expression(lexer: &mut Lexer<'_>) -> Result<Expression, ParsingError> {
     let mut expression = match lexer.next_token()? {
+        placeholder_token @ Token {
+            location,
+            kind: TokenKind::Placeholder,
+        } => Expression {
+            location,
+            kind: ExpressionKind::Placeholder { placeholder_token },
+        },
+
         name_token @ Token {
             location,
             kind: TokenKind::Name(_),

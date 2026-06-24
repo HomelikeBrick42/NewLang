@@ -125,6 +125,9 @@ pub enum ExpressionKind {
         statements: Box<[Statement]>,
         close_brace_token: Token,
     },
+    Placeholder {
+        placeholder_token: Token,
+    },
     Name {
         name_token: Token,
     },

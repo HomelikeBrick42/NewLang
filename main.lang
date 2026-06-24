@@ -23,6 +23,7 @@ fn main(runtime: Runtime) {
     let x = Foo {
         member: 5,
     }
-    Foo { member: let value } = x
+    _ { member: _ } = x
+    _ { member: let value } = x
     print_i64(value, runtime)
 }

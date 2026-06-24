@@ -296,6 +296,13 @@ pub fn validate_expression(
                     )
                     .collect::<Result<_, ValidatingError>>()?,
             },
+
+            st::ExpressionKind::Placeholder { .. } => {
+                return Err(ValidatingError {
+                    location,
+                    kind: ValidatingErrorKind::ExpectedExpression,
+                });
+            }
         },
     })
 }
@@ -311,6 +318,10 @@ pub fn validate_pattern(
                 expression,
                 close_parenthesis_token: _,
             } => return validate_pattern(expression),
+
+            st::ExpressionKind::Placeholder {
+                placeholder_token: _,
+            } => ast::PatternKind::Discard,
 
             st::ExpressionKind::Name { .. } | st::ExpressionKind::Let { .. } => {
                 ast::PatternKind::Place(Box::new(validate_place(expression)?))
@@ -395,6 +406,7 @@ pub fn validate_place(
 
             st::ExpressionKind::ParenthesisedExpression { .. }
             | st::ExpressionKind::Block { .. }
+            | st::ExpressionKind::Placeholder { .. }
             | st::ExpressionKind::Integer { .. }
             | st::ExpressionKind::Call { .. }
             | st::ExpressionKind::Constructor { .. } => unreachable!(),
@@ -408,6 +420,8 @@ pub fn validate_type(
     Ok(ast::Type {
         location,
         kind: match kind {
+            st::ExpressionKind::Placeholder { .. } => ast::TypeKind::Infer,
+
             st::ExpressionKind::Name { name_token } => {
                 let TokenKind::Name(name) = name_token.kind else {
                     unreachable!()

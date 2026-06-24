@@ -144,6 +144,7 @@ pub fn infer_pattern(
         PatternKind::Place(ref place) => infer_place(place, Some(pattern.typ), types, errors),
 
         PatternKind::Integer(_) => {}
+        PatternKind::Discard => {}
 
         PatternKind::Deconstructor { ref members } => {
             let struct_like = types.insert(Type {

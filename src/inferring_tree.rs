@@ -128,6 +128,7 @@ pub struct Pattern {
 pub enum PatternKind {
     Place(Box<Place>),
     Integer(u64),
+    Discard,
     Deconstructor { members: Box<[DeconstructorMember]> },
 }
 
