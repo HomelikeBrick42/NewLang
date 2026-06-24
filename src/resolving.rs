@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use crate::{ast, inferring_tree as it, interning::InternedStr, lexer::SourceLocation};
 use derive_more::Display;
 use enum_map::enum_map;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use slotmap::{SecondaryMap, SlotMap, new_key_type};
 
 new_key_type! {
@@ -170,6 +170,7 @@ fn resolve_item<'ast>(
             resolving_items,
             delayed_resolutions,
             &names,
+            false,
         )?),
 
         ast::ItemKind::Struct {
@@ -212,11 +213,24 @@ fn resolve_item<'ast>(
                                 resolving_items,
                                 delayed_resolutions,
                                 &names,
+                                false,
                             )?,
                         })
                     },
                 )
-                .collect::<Result<_, ResolvingError>>()?;
+                .collect::<Result<Box<[_]>, ResolvingError>>()?;
+
+            {
+                let mut names = FxHashSet::default();
+                for member in &members {
+                    if !names.insert(member.name) {
+                        return Err(ResolvingError {
+                            location: member.location,
+                            kind: ResolvingErrorKind::MemberRedeclaration { name: member.name },
+                        });
+                    }
+                }
+            }
 
             program.types[id].kind = it::TypeKind::Struct { name, members };
 
@@ -249,6 +263,7 @@ fn resolve_item<'ast>(
                                 resolving_items,
                                 delayed_resolutions,
                                 &names,
+                                false,
                             )?;
 
                             let variable = variables.insert(it::Variable {
@@ -274,6 +289,7 @@ fn resolve_item<'ast>(
                 resolving_items,
                 delayed_resolutions,
                 &names,
+                false,
             )?;
 
             let function_id = program.functions.insert_with_key(|id| {
@@ -503,7 +519,14 @@ fn resolve_expression<'ast>(
             ref members,
         } => it::Expression {
             location: expression.location,
-            typ: resolve_type(typ, program, resolving_items, delayed_resolutions, names)?,
+            typ: resolve_type(
+                typ,
+                program,
+                resolving_items,
+                delayed_resolutions,
+                names,
+                true,
+            )?,
             kind: it::ExpressionKind::Constructor {
                 members: members
                     .iter()
@@ -581,7 +604,14 @@ fn resolve_pattern<'ast>(
             ref members,
         } => it::Pattern {
             location: pattern.location,
-            typ: resolve_type(typ, program, resolving_items, delayed_resolutions, names)?,
+            typ: resolve_type(
+                typ,
+                program,
+                resolving_items,
+                delayed_resolutions,
+                names,
+                true,
+            )?,
             kind: it::PatternKind::Deconstructor {
                 members: members
                     .iter()
@@ -655,7 +685,14 @@ fn resolve_place<'ast>(
         },
 
         ast::PlaceKind::Let { name, ref typ } => {
-            let typ = resolve_type(typ, program, resolving_items, delayed_resolutions, names)?;
+            let typ = resolve_type(
+                typ,
+                program,
+                resolving_items,
+                delayed_resolutions,
+                names,
+                true,
+            )?;
             let id = variables.insert(it::Variable {
                 location: place.location,
                 name: Some(name),
@@ -677,12 +714,22 @@ fn resolve_type<'ast>(
     resolving_items: &mut SlotMap<ItemId, Item<'ast>>,
     delayed_resolutions: &mut VecDeque<DelayedResolution<'ast>>,
     names: &FxHashMap<InternedStr, Name>,
+    infer_allowed: bool,
 ) -> Result<it::TypeId, ResolvingError> {
     Ok(match typ.kind {
-        ast::TypeKind::Infer => program.types.insert(it::Type {
-            location: typ.location,
-            kind: it::TypeKind::Infer(it::InferTypeKind::Anything),
-        }),
+        ast::TypeKind::Infer => {
+            if infer_allowed {
+                program.types.insert(it::Type {
+                    location: typ.location,
+                    kind: it::TypeKind::Infer(it::InferTypeKind::Anything),
+                })
+            } else {
+                return Err(ResolvingError {
+                    location: typ.location,
+                    kind: ResolvingErrorKind::InferCannotBeUsed,
+                });
+            }
+        }
 
         ast::TypeKind::Name(name) => match resolve_name(
             typ.location,
@@ -809,10 +856,14 @@ pub struct ResolvingError {
 pub enum ResolvingErrorKind {
     #[display("Cyclic dependency detected")]
     CyclicDependency,
+    #[display("Member {name} was already declared")]
+    MemberRedeclaration { name: InternedStr },
     #[display("Unknown name '{_0}'")]
     UnknownName(InternedStr),
     #[display("Expected value but got type declared at {_0}")]
     ExpectedValueButGotType(SourceLocation),
     #[display("Expected type but got value")]
     ExpectedTypeButGotValue,
+    #[display("_ to infer a type cannot be used here")]
+    InferCannotBeUsed,
 }
