@@ -12,12 +12,29 @@ pub enum ItemKind {
         name: InternedStr,
         typ: Type,
     },
+    Struct {
+        builtin_type: Option<BuiltinStruct>,
+        name: InternedStr,
+        members: Box<[StructMember]>,
+    },
     Function {
         name: InternedStr,
         parameters: Box<[Parameter]>,
         return_type: Type,
         body: FunctionBody,
     },
+}
+
+#[derive(Debug)]
+pub enum BuiltinStruct {
+    Unit,
+}
+
+#[derive(Debug)]
+pub struct StructMember {
+    pub location: SourceLocation,
+    pub name: InternedStr,
+    pub typ: Type,
 }
 
 #[derive(Debug)]
@@ -77,11 +94,22 @@ pub enum ExpressionKind {
         operand: Box<Expression>,
         arguments: Box<[Argument]>,
     },
+    Constructor {
+        typ: Box<Type>,
+        members: Box<[ConstructorMember]>,
+    },
 }
 
 #[derive(Debug)]
 pub enum Argument {
     Value { expression: Expression },
+}
+
+#[derive(Debug)]
+pub struct ConstructorMember {
+    pub location: SourceLocation,
+    pub name: InternedStr,
+    pub value: Expression,
 }
 
 #[derive(Debug)]
@@ -94,6 +122,17 @@ pub struct Pattern {
 pub enum PatternKind {
     Place(Box<Place>),
     Integer(u64),
+    Deconstructor {
+        typ: Box<Type>,
+        members: Box<[DeconstructorMember]>,
+    },
+}
+
+#[derive(Debug)]
+pub struct DeconstructorMember {
+    pub location: SourceLocation,
+    pub name: InternedStr,
+    pub pattern: Pattern,
 }
 
 #[derive(Debug)]
@@ -118,8 +157,14 @@ pub struct Type {
 pub enum TypeKind {
     Infer,
     Name(InternedStr),
-    DeclareBuiltin(BuiltinType),
+    DeclareBuiltin(BuiltinTypeAlias),
     Builtin(BuiltinType),
+}
+
+#[derive(Debug)]
+pub enum BuiltinTypeAlias {
+    Runtime,
+    I64,
 }
 
 #[derive(Debug)]

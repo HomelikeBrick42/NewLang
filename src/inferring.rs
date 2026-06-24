@@ -108,6 +108,25 @@ pub fn infer_expression(
                 }
             }
         }
+
+        ExpressionKind::Constructor { ref members } => {
+            let struct_like = types.insert(Type {
+                location: expression.location,
+                kind: TypeKind::Infer(InferTypeKind::StructLike {
+                    members: members
+                        .iter()
+                        .map(|member| (member.name, member.value.typ))
+                        .collect(),
+                }),
+            });
+            infer_equal(
+                expression.location,
+                expression.typ,
+                struct_like,
+                types,
+                errors,
+            );
+        }
     }
 }
 
@@ -125,6 +144,19 @@ pub fn infer_pattern(
         PatternKind::Place(ref place) => infer_place(place, Some(pattern.typ), types, errors),
 
         PatternKind::Integer(_) => {}
+
+        PatternKind::Deconstructor { ref members } => {
+            let struct_like = types.insert(Type {
+                location: pattern.location,
+                kind: TypeKind::Infer(InferTypeKind::StructLike {
+                    members: members
+                        .iter()
+                        .map(|member| (member.name, member.pattern.typ))
+                        .collect(),
+                }),
+            });
+            infer_equal(pattern.location, pattern.typ, struct_like, types, errors);
+        }
     }
 }
 
@@ -170,6 +202,113 @@ pub fn infer_equal(
         (&_, &TypeKind::Infer(InferTypeKind::Anything)) => {
             types[expected_id].kind = TypeKind::Inferred(got_id);
             true
+        }
+
+        (
+            TypeKind::Infer(InferTypeKind::StructLike {
+                members: got_members,
+            }),
+            TypeKind::Struct {
+                name: _,
+                members: expected_members,
+            },
+        ) => {
+            let mut equal = true;
+
+            let got_members = got_members.clone();
+            for member in expected_members.clone() {
+                if let Some(&got_id) = got_members.get(&member.name) {
+                    equal &= infer_equal(location, got_id, member.typ, types, errors);
+                }
+            }
+
+            if equal {
+                types[got_id].kind = TypeKind::Inferred(expected_id);
+            } else {
+                errors.push(InferringError {
+                    location,
+                    kind: InferringErrorKind::ExpectedTypeButGotType {
+                        expected_id,
+                        got_id,
+                    },
+                });
+            }
+
+            equal
+        }
+        (
+            TypeKind::Struct {
+                name: _,
+                members: got_members,
+            },
+            TypeKind::Infer(InferTypeKind::StructLike {
+                members: expected_members,
+            }),
+        ) => {
+            let mut equal = true;
+
+            let expected_members = expected_members.clone();
+            for member in got_members.clone() {
+                if let Some(&expected_id) = expected_members.get(&member.name) {
+                    equal &= infer_equal(location, member.typ, expected_id, types, errors);
+                }
+            }
+
+            if equal {
+                types[expected_id].kind = TypeKind::Inferred(got_id);
+            } else {
+                errors.push(InferringError {
+                    location,
+                    kind: InferringErrorKind::ExpectedTypeButGotType {
+                        expected_id,
+                        got_id,
+                    },
+                });
+            }
+
+            equal
+        }
+
+        (
+            &TypeKind::Infer(InferTypeKind::StructLike {
+                members: ref got_members,
+            }),
+            &TypeKind::Infer(InferTypeKind::StructLike {
+                members: ref expected_members,
+            }),
+        ) => {
+            let mut equal = true;
+
+            let mut members = got_members.clone();
+            for (name, expected_id) in expected_members.clone() {
+                match members.get(&name) {
+                    Some(&got_id) => {
+                        equal &= infer_equal(location, got_id, expected_id, types, errors)
+                    }
+                    None => _ = members.insert(name, expected_id),
+                }
+            }
+
+            if equal {
+                let TypeKind::Infer(InferTypeKind::StructLike {
+                    members: ref mut expected_members,
+                }) = types[expected_id].kind
+                else {
+                    unreachable!()
+                };
+                *expected_members = members;
+                types[got_id].kind = TypeKind::Inferred(expected_id);
+            } else {
+                errors.push(InferringError {
+                    location,
+                    kind: InferringErrorKind::ExpectedTypeButGotType {
+                        expected_id,
+                        got_id,
+                    },
+                });
+            }
+
+            equal
         }
 
         (

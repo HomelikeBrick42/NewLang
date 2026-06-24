@@ -1,5 +1,5 @@
 #[builtin]
-type Unit
+struct Unit {}
 
 #[builtin]
 type Runtime
@@ -15,4 +15,14 @@ fn main(runtime: Runtime) {
 
     let variable = 6
     print_i64(variable, runtime)
+
+    struct Foo {
+        member: I64,
+    }
+
+    let x = Foo {
+        member: 5,
+    }
+    Foo { member: let value } = x
+    print_i64(value, runtime)
 }

@@ -74,8 +74,13 @@ pub enum InstructionKind {
     ConstantFunctionItem {
         destination: VariableId,
     },
-    AssumeInit {
-        variable: VariableId,
+    ConstructStruct {
+        destination: VariableId,
+        members: Vec<(InternedStr, VariableId)>,
+    },
+    DeconstructStruct {
+        source: VariableId,
+        members: Vec<(InternedStr, VariableId)>,
     },
     StorageDead {
         variable: VariableId,
@@ -127,7 +132,18 @@ pub enum TypeKind {
     Unit,
     Runtime,
     I64,
+    Struct {
+        name: InternedStr,
+        members: Box<[TypeMember]>,
+    },
     FunctionItem(FunctionId),
+}
+
+#[derive(Debug)]
+pub struct TypeMember {
+    pub location: SourceLocation,
+    pub name: InternedStr,
+    pub typ: TypeId,
 }
 
 pub struct PrettyPrintType<'a> {
@@ -142,6 +158,24 @@ impl Display for PrettyPrintType<'_> {
             TypeKind::Unit => write!(f, "Unit"),
             TypeKind::Runtime => write!(f, "Runtime"),
             TypeKind::I64 => write!(f, "I64"),
+            TypeKind::Struct { name, ref members } => {
+                write!(f, "{name} {{ ")?;
+                for (i, member) in members.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(
+                        f,
+                        "{}: {}",
+                        member.name,
+                        PrettyPrintType {
+                            id: member.typ,
+                            types: self.types,
+                        },
+                    )?;
+                }
+                write!(f, " }}")
+            }
             TypeKind::FunctionItem(_) => write!(f, "fn_item(...) -> _"),
         }
     }

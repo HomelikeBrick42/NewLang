@@ -95,8 +95,39 @@ pub fn analyze_function(
                             variable_initialization[destination] = true;
                         }
 
-                        ir::InstructionKind::AssumeInit { variable } => {
-                            variable_initialization[variable] = true;
+                        ir::InstructionKind::ConstructStruct {
+                            destination,
+                            ref members,
+                        } => {
+                            for &(_, variable) in members.iter().rev() {
+                                require_init(
+                                    instruction.location,
+                                    variable,
+                                    program,
+                                    variables,
+                                    &variable_initialization,
+                                    errors,
+                                );
+                                variable_initialization[variable] = false;
+                            }
+                            variable_initialization[destination] = true;
+                        }
+
+                        ir::InstructionKind::DeconstructStruct {
+                            source,
+                            ref members,
+                        } => {
+                            require_init(
+                                instruction.location,
+                                source,
+                                program,
+                                variables,
+                                &variable_initialization,
+                                errors,
+                            );
+                            for &(_, variable) in members {
+                                variable_initialization[variable] = true;
+                            }
                         }
 
                         ir::InstructionKind::PrintI64 { variable } => {

@@ -1,5 +1,6 @@
 use crate::{ast, interning::InternedStr, lexer::SourceLocation};
 use enum_map::{Enum, EnumMap};
+use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SlotMap, new_key_type};
 use std::fmt::Display;
 
@@ -11,7 +12,7 @@ pub struct Program {
     pub builtin_types: EnumMap<BuiltinType, Option<TypeId>>,
 }
 
-#[derive(Debug, Enum)]
+#[derive(Debug, Clone, Copy, Enum)]
 pub enum BuiltinType {
     Unit,
     Runtime,
@@ -99,11 +100,21 @@ pub enum ExpressionKind {
         operand: Box<Expression>,
         arguments: Box<[Argument]>,
     },
+    Constructor {
+        members: Box<[ConstructorMember]>,
+    },
 }
 
 #[derive(Debug)]
 pub enum Argument {
     Value { expression: Expression },
+}
+
+#[derive(Debug)]
+pub struct ConstructorMember {
+    pub location: SourceLocation,
+    pub name: InternedStr,
+    pub value: Expression,
 }
 
 #[derive(Debug)]
@@ -117,6 +128,14 @@ pub struct Pattern {
 pub enum PatternKind {
     Place(Box<Place>),
     Integer(u64),
+    Deconstructor { members: Box<[DeconstructorMember]> },
+}
+
+#[derive(Debug)]
+pub struct DeconstructorMember {
+    pub location: SourceLocation,
+    pub name: InternedStr,
+    pub pattern: Pattern,
 }
 
 #[derive(Debug)]
@@ -151,6 +170,10 @@ pub enum TypeKind {
     Unit,
     Runtime,
     I64,
+    Struct {
+        name: InternedStr,
+        members: Box<[TypeMember]>,
+    },
     FunctionItem {
         function: FunctionId,
         parameters: Box<[ParameterType]>,
@@ -161,10 +184,20 @@ pub enum TypeKind {
 #[derive(Debug)]
 pub enum InferTypeKind {
     Anything,
+    StructLike {
+        members: FxHashMap<InternedStr, TypeId>,
+    },
     FunctionLike {
         parameters: Box<[ParameterType]>,
         return_type: TypeId,
     },
+}
+
+#[derive(Debug, Clone)]
+pub struct TypeMember {
+    pub location: SourceLocation,
+    pub name: InternedStr,
+    pub typ: TypeId,
 }
 
 #[derive(Debug, Clone)]
@@ -183,6 +216,23 @@ impl Display for PrettyPrintType<'_> {
             TypeKind::Resolving => write!(f, "{{resolving}}"),
             TypeKind::Infer(ref infer_type_kind) => match *infer_type_kind {
                 InferTypeKind::Anything => write!(f, "_"),
+                InferTypeKind::StructLike { ref members } => {
+                    write!(f, "_ {{ ")?;
+                    for (i, (&name, &typ)) in members.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(
+                            f,
+                            "{name}: {}",
+                            PrettyPrintType {
+                                id: typ,
+                                types: self.types,
+                            },
+                        )?;
+                    }
+                    write!(f, " }}")
+                }
                 InferTypeKind::FunctionLike {
                     ref parameters,
                     return_type,
@@ -224,6 +274,24 @@ impl Display for PrettyPrintType<'_> {
             TypeKind::Unit => write!(f, "Unit"),
             TypeKind::Runtime => write!(f, "Runtime"),
             TypeKind::I64 => write!(f, "I64"),
+            TypeKind::Struct { name, ref members } => {
+                write!(f, "{name} {{ ")?;
+                for (i, member) in members.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(
+                        f,
+                        "{}: {}",
+                        member.name,
+                        PrettyPrintType {
+                            id: member.typ,
+                            types: self.types,
+                        },
+                    )?;
+                }
+                write!(f, " }}")
+            }
             TypeKind::FunctionItem {
                 function: _,
                 ref parameters,

@@ -132,7 +132,9 @@ fn insert_item_names<'ast>(
     let ids = items
         .map(|item| {
             let name = match item.kind {
-                ast::ItemKind::Type { name, .. } | ast::ItemKind::Function { name, .. } => name,
+                ast::ItemKind::Type { name, .. }
+                | ast::ItemKind::Struct { name, .. }
+                | ast::ItemKind::Function { name, .. } => name,
             };
             let id = resolving_items.insert(Item::Unresolved {
                 names: FxHashMap::default(),
@@ -169,6 +171,57 @@ fn resolve_item<'ast>(
             delayed_resolutions,
             &names,
         )?),
+
+        ast::ItemKind::Struct {
+            ref builtin_type,
+            name,
+            ref members,
+        } => Item::Type({
+            let id = program.types.insert(it::Type {
+                location: item.location,
+                kind: it::TypeKind::Resolving,
+            });
+
+            if let Some(builtin_type) = builtin_type {
+                let builtin_type = match *builtin_type {
+                    ast::BuiltinStruct::Unit => it::BuiltinType::Unit,
+                };
+                match program.builtin_types[builtin_type] {
+                    Some(_) => panic!(
+                        "{}: Cannot redeclare builtin type {builtin_type:?}",
+                        item.location
+                    ),
+                    ref mut builtin_type => *builtin_type = Some(id),
+                }
+            }
+
+            let members = members
+                .iter()
+                .map(
+                    |&ast::StructMember {
+                         location,
+                         name,
+                         ref typ,
+                     }| {
+                        Ok(it::TypeMember {
+                            location,
+                            name,
+                            typ: resolve_type(
+                                typ,
+                                program,
+                                resolving_items,
+                                delayed_resolutions,
+                                &names,
+                            )?,
+                        })
+                    },
+                )
+                .collect::<Result<_, ResolvingError>>()?;
+
+            program.types[id].kind = it::TypeKind::Struct { name, members };
+
+            id
+        }),
 
         ast::ItemKind::Function {
             name,
@@ -444,6 +497,39 @@ fn resolve_expression<'ast>(
                     .collect::<Result<_, ResolvingError>>()?,
             },
         },
+
+        ast::ExpressionKind::Constructor {
+            ref typ,
+            ref members,
+        } => it::Expression {
+            location: expression.location,
+            typ: resolve_type(typ, program, resolving_items, delayed_resolutions, names)?,
+            kind: it::ExpressionKind::Constructor {
+                members: members
+                    .iter()
+                    .map(
+                        |&ast::ConstructorMember {
+                             location,
+                             name,
+                             ref value,
+                         }| {
+                            Ok(it::ConstructorMember {
+                                location,
+                                name,
+                                value: resolve_expression(
+                                    value,
+                                    program,
+                                    resolving_items,
+                                    delayed_resolutions,
+                                    names,
+                                    variables,
+                                )?,
+                            })
+                        },
+                    )
+                    .collect::<Result<_, ResolvingError>>()?,
+            },
+        },
     })
 }
 
@@ -479,6 +565,39 @@ fn resolve_pattern<'ast>(
                 kind: it::TypeKind::Infer(it::InferTypeKind::Anything),
             }),
             kind: it::PatternKind::Integer(value),
+        },
+
+        ast::PatternKind::Deconstructor {
+            ref typ,
+            ref members,
+        } => it::Pattern {
+            location: pattern.location,
+            typ: resolve_type(typ, program, resolving_items, delayed_resolutions, names)?,
+            kind: it::PatternKind::Deconstructor {
+                members: members
+                    .iter()
+                    .map(
+                        |&ast::DeconstructorMember {
+                             location,
+                             name,
+                             ref pattern,
+                         }| {
+                            Ok(it::DeconstructorMember {
+                                location,
+                                name,
+                                pattern: resolve_pattern(
+                                    pattern,
+                                    program,
+                                    resolving_items,
+                                    delayed_resolutions,
+                                    names,
+                                    variables,
+                                )?,
+                            })
+                        },
+                    )
+                    .collect::<Result<_, ResolvingError>>()?,
+            },
         },
     })
 }
@@ -587,9 +706,8 @@ fn resolve_type<'ast>(
 
         ast::TypeKind::DeclareBuiltin(ref builtin_type) => {
             let (builtin_type, kind) = match *builtin_type {
-                ast::BuiltinType::Unit => (it::BuiltinType::Unit, it::TypeKind::Unit),
-                ast::BuiltinType::Runtime => (it::BuiltinType::Runtime, it::TypeKind::Runtime),
-                ast::BuiltinType::I64 => (it::BuiltinType::I64, it::TypeKind::I64),
+                ast::BuiltinTypeAlias::Runtime => (it::BuiltinType::Runtime, it::TypeKind::Runtime),
+                ast::BuiltinTypeAlias::I64 => (it::BuiltinType::I64, it::TypeKind::I64),
             };
             match program.builtin_types[builtin_type] {
                 Some(_) => panic!("{}: Cannot redeclare builtin type {kind:?}", typ.location),

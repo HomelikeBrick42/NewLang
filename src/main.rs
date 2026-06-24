@@ -181,6 +181,58 @@ fn main() -> ExitCode {
                 }
                 ToIrErrorKind::IntegerTooBigForI64 => eprintln!("Integer is too big for i64"),
                 ToIrErrorKind::PatternNotAssignable => eprintln!("Pattern is not assignable"),
+                ToIrErrorKind::ExpectedStructOrEnumTypeButGot { got_id } => {
+                    eprintln!(
+                        "Expected struct or enum type but got type {}",
+                        ir::PrettyPrintType {
+                            id: got_id,
+                            types: &ir_program.types,
+                        },
+                    );
+                    eprintln!(
+                        "    NOTE: Got type declared at {}",
+                        ir_program.types[got_id].location,
+                    );
+                }
+                ToIrErrorKind::UnknownMember { type_id, name } => {
+                    eprintln!(
+                        "Unknown member '{name}' of type {}",
+                        ir::PrettyPrintType {
+                            id: type_id,
+                            types: &ir_program.types,
+                        },
+                    );
+                    eprintln!(
+                        "    NOTE: Type declared at {}",
+                        ir_program.types[type_id].location,
+                    );
+                }
+                ToIrErrorKind::MemberNotConstructed { type_id, name } => {
+                    eprintln!(
+                        "Member '{name}' of type {} was not constructed",
+                        ir::PrettyPrintType {
+                            id: type_id,
+                            types: &ir_program.types,
+                        },
+                    );
+                    eprintln!(
+                        "    NOTE: Type declared at {}",
+                        ir_program.types[type_id].location,
+                    );
+                }
+                ToIrErrorKind::MemberNotDeconstructed { type_id, name } => {
+                    eprintln!(
+                        "Member '{name}' of type {} was not deconstructed",
+                        ir::PrettyPrintType {
+                            id: type_id,
+                            types: &ir_program.types,
+                        },
+                    );
+                    eprintln!(
+                        "    NOTE: Type declared at {}",
+                        ir_program.types[type_id].location,
+                    );
+                }
             }
         };
 
@@ -216,27 +268,16 @@ fn main() -> ExitCode {
     }
     drop(inferring_program);
 
-    {
-        let mut errors = vec![];
-
-        for (id, _) in &ir_program.functions {
-            analyze_function(id, &ir_program, &mut errors);
-        }
-
-        if !errors.is_empty() {
-            for error in errors {
-                eprint!("{}: ", error.location);
-                match error.kind {
-                    SemanticAnalysisErrorKind::VariableUninitialized { variable_location } => {
-                        eprintln!("Variable is uninitialized");
-                        eprintln!("    NOTE: Variable declared at {variable_location}");
-                    }
-                }
-            }
-            return ExitCode::FAILURE;
-        }
+    for (id, _) in &ir_program.types {
+        println!(
+            "{id:?} = {}",
+            ir::PrettyPrintType {
+                id,
+                types: &ir_program.types,
+            },
+        );
     }
-
+    println!();
     for (id, function) in &ir_program.functions {
         print!("{id:?} = fn {}(", function.name.unwrap_or("_".into()));
         match function.body {
@@ -286,6 +327,27 @@ fn main() -> ExitCode {
             }
         }
         println!();
+    }
+
+    {
+        let mut errors = vec![];
+
+        for (id, _) in &ir_program.functions {
+            analyze_function(id, &ir_program, &mut errors);
+        }
+
+        if !errors.is_empty() {
+            for error in errors {
+                eprint!("{}: ", error.location);
+                match error.kind {
+                    SemanticAnalysisErrorKind::VariableUninitialized { variable_location } => {
+                        eprintln!("Variable is uninitialized");
+                        eprintln!("    NOTE: Variable declared at {variable_location}");
+                    }
+                }
+            }
+            return ExitCode::FAILURE;
+        }
     }
 
     drop(ir_program);

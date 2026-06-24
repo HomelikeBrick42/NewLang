@@ -42,9 +42,8 @@ pub fn validate_item(
                         ast::Type {
                             location,
                             kind: ast::TypeKind::DeclareBuiltin(match name.as_str() {
-                                "Unit" => ast::BuiltinType::Unit,
-                                "Runtime" => ast::BuiltinType::Runtime,
-                                "I64" => ast::BuiltinType::I64,
+                                "Runtime" => ast::BuiltinTypeAlias::Runtime,
+                                "I64" => ast::BuiltinTypeAlias::I64,
                                 name => unreachable!("unknown builtin type alias '{name}'"),
                             }),
                         }
@@ -54,6 +53,51 @@ pub fn validate_item(
                             kind: ValidatingErrorKind::TypeAliasMustBeAssignedType,
                         });
                     },
+                }
+            }
+
+            st::ItemKind::Struct {
+                struct_token: _,
+                name_token,
+                members:
+                    st::Members {
+                        open_brace_token: _,
+                        members,
+                        close_brace_token: _,
+                    },
+            } => {
+                let TokenKind::Name(name) = name_token.kind else {
+                    unreachable!()
+                };
+                ast::ItemKind::Struct {
+                    builtin_type: if builtin {
+                        Some(match name.as_str() {
+                            "Unit" => ast::BuiltinStruct::Unit,
+                            name => unreachable!("unknown builtin struct '{name}'"),
+                        })
+                    } else {
+                        None
+                    },
+                    name,
+                    members: members
+                        .iter()
+                        .map(
+                            |st::Member {
+                                 name_token,
+                                 colon_token: _,
+                                 typ,
+                             }| {
+                                let TokenKind::Name(name) = name_token.kind else {
+                                    unreachable!()
+                                };
+                                Ok(ast::StructMember {
+                                    location: name_token.location,
+                                    name,
+                                    typ: validate_type(typ)?,
+                                })
+                            },
+                        )
+                        .collect::<Result<_, ValidatingError>>()?,
                 }
             }
 
@@ -178,7 +222,16 @@ pub fn validate_expression(
                     };
                     expression
                 } else {
-                    todo!()
+                    Box::new(ast::Expression {
+                        location: close_brace_token.location,
+                        kind: ast::ExpressionKind::Constructor {
+                            typ: Box::new(ast::Type {
+                                location: close_brace_token.location,
+                                kind: ast::TypeKind::Builtin(ast::BuiltinType::Unit),
+                            }),
+                            members: Box::new([]),
+                        },
+                    })
                 };
 
                 ast::ExpressionKind::Block {
@@ -217,6 +270,32 @@ pub fn validate_expression(
                     })
                     .collect::<Result<_, ValidatingError>>()?,
             },
+
+            st::ExpressionKind::Constructor { typ, members } => ast::ExpressionKind::Constructor {
+                typ: Box::new(validate_type(typ)?),
+                members: members
+                    .members
+                    .iter()
+                    .map(
+                        |st::Member {
+                             name_token,
+                             colon_token: _,
+                             typ: value,
+                         }| {
+                            Ok(ast::ConstructorMember {
+                                location: name_token.location,
+                                name: {
+                                    let TokenKind::Name(name) = name_token.kind else {
+                                        unreachable!()
+                                    };
+                                    name
+                                },
+                                value: validate_expression(value)?,
+                            })
+                        },
+                    )
+                    .collect::<Result<_, ValidatingError>>()?,
+            },
         },
     })
 }
@@ -243,6 +322,32 @@ pub fn validate_pattern(
                 };
                 ast::PatternKind::Integer(value)
             }
+
+            st::ExpressionKind::Constructor { typ, members } => ast::PatternKind::Deconstructor {
+                typ: Box::new(validate_type(typ)?),
+                members: members
+                    .members
+                    .iter()
+                    .map(
+                        |st::Member {
+                             name_token,
+                             colon_token: _,
+                             typ: pattern,
+                         }| {
+                            Ok(ast::DeconstructorMember {
+                                location: name_token.location,
+                                name: {
+                                    let TokenKind::Name(name) = name_token.kind else {
+                                        unreachable!()
+                                    };
+                                    name
+                                },
+                                pattern: validate_pattern(pattern)?,
+                            })
+                        },
+                    )
+                    .collect::<Result<_, ValidatingError>>()?,
+            },
 
             st::ExpressionKind::Block { .. } | st::ExpressionKind::Call { .. } => {
                 return Err(ValidatingError {
@@ -291,7 +396,8 @@ pub fn validate_place(
             st::ExpressionKind::ParenthesisedExpression { .. }
             | st::ExpressionKind::Block { .. }
             | st::ExpressionKind::Integer { .. }
-            | st::ExpressionKind::Call { .. } => unreachable!(),
+            | st::ExpressionKind::Call { .. }
+            | st::ExpressionKind::Constructor { .. } => unreachable!(),
         },
     })
 }
@@ -313,7 +419,8 @@ pub fn validate_type(
             | st::ExpressionKind::Block { .. }
             | st::ExpressionKind::Integer { .. }
             | st::ExpressionKind::Call { .. }
-            | st::ExpressionKind::Let { .. } => {
+            | st::ExpressionKind::Let { .. }
+            | st::ExpressionKind::Constructor { .. } => {
                 return Err(ValidatingError {
                     location,
                     kind: ValidatingErrorKind::ExpectedType,

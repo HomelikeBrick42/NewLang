@@ -3,7 +3,8 @@ use crate::{
     lexer::{Lexer, LexerError, LexerErrorKind, SourceLocation, Token, TokenKind},
     syntax_tree::{
         Argument, Attribute, AttributeKind, ColonType, EqualsType, Expression, ExpressionKind,
-        Item, ItemKind, Parameter, ParameterKind, Parameters, ReturnType, Statement, StatementKind,
+        Item, ItemKind, Member, Members, Parameter, ParameterKind, Parameters, ReturnType,
+        Statement, StatementKind,
     },
 };
 use derive_more::Display;
@@ -97,6 +98,42 @@ pub fn parse_item(lexer: &mut Lexer<'_>) -> Result<Item, ParsingError> {
                     }))
                 } else {
                     None
+                },
+            },
+        },
+
+        struct_token @ Token {
+            location,
+            kind: TokenKind::StructKeyword,
+        } => Item {
+            attributes,
+            location,
+            kind: ItemKind::Struct {
+                struct_token,
+                name_token: expect_token!(lexer, TokenKind::Name(_))?,
+                members: {
+                    let open_brace_token = expect_token!(lexer, TokenKind::OpenBrace)?;
+                    let mut members = vec![];
+                    let close_brace_token = loop {
+                        while eat_token!(lexer, TokenKind::Newline)?.is_some() {}
+                        if let Some(close_brace_token) = eat_token!(lexer, TokenKind::CloseBrace)? {
+                            break close_brace_token;
+                        }
+                        members.push(Member {
+                            name_token: expect_token!(lexer, TokenKind::Name(_))?,
+                            colon_token: expect_token!(lexer, TokenKind::Colon)?,
+                            typ: parse_expression(lexer)?,
+                        });
+                        if let Some(close_brace_token) = eat_token!(lexer, TokenKind::CloseBrace)? {
+                            break close_brace_token;
+                        }
+                        eat_token!(lexer, TokenKind::Comma)?;
+                    };
+                    Members {
+                        open_brace_token,
+                        members: members.into_boxed_slice(),
+                        close_brace_token,
+                    }
                 },
             },
         },
@@ -281,9 +318,8 @@ pub fn parse_expression(lexer: &mut Lexer<'_>) -> Result<Expression, ParsingErro
             });
         }
     };
-    #[expect(clippy::while_let_loop)]
     loop {
-        match lexer.clone().next_token().ok() {
+        expression = match lexer.clone().next_token().ok() {
             Some(
                 open_parenthesis_token @ Token {
                     location,
@@ -308,7 +344,8 @@ pub fn parse_expression(lexer: &mut Lexer<'_>) -> Result<Expression, ParsingErro
                     }
                     eat_token!(lexer, TokenKind::Comma)?;
                 };
-                expression = Expression {
+
+                Expression {
                     location,
                     kind: ExpressionKind::Call {
                         operand: Box::new(expression),
@@ -316,11 +353,49 @@ pub fn parse_expression(lexer: &mut Lexer<'_>) -> Result<Expression, ParsingErro
                         arguments: arguments.into_boxed_slice(),
                         close_parenthesis_token,
                     },
+                }
+            }
+
+            Some(
+                open_brace_token @ Token {
+                    location,
+                    kind: TokenKind::OpenBrace,
+                },
+            ) => {
+                _ = lexer.next_token();
+
+                let mut members = vec![];
+                let close_brace_token = loop {
+                    eat_token!(lexer, TokenKind::Newline)?;
+                    if let Some(close_brace_token) = eat_token!(lexer, TokenKind::CloseBrace)? {
+                        break close_brace_token;
+                    }
+                    members.push(Member {
+                        name_token: expect_token!(lexer, TokenKind::Name(_))?,
+                        colon_token: expect_token!(lexer, TokenKind::Colon)?,
+                        typ: parse_expression(lexer)?,
+                    });
+                    if let Some(close_brace_token) = eat_token!(lexer, TokenKind::CloseBrace)? {
+                        break close_brace_token;
+                    }
+                    eat_token!(lexer, TokenKind::Comma)?;
                 };
+
+                Expression {
+                    location,
+                    kind: ExpressionKind::Constructor {
+                        typ: Box::new(expression),
+                        members: Members {
+                            open_brace_token,
+                            members: members.into_boxed_slice(),
+                            close_brace_token,
+                        },
+                    },
+                }
             }
 
             _ => break,
-        }
+        };
     }
     Ok(expression)
 }
@@ -339,7 +414,7 @@ pub fn parse_block(
         if let Some(close_brace_token) = eat_token!(lexer, TokenKind::CloseBrace)? {
             break close_brace_token;
         }
-        eat_token!(lexer, TokenKind::Newline)?;
+        expect_token!(lexer, TokenKind::Newline)?;
     };
     Ok(Expression {
         location: open_brace_token.location,

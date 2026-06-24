@@ -28,6 +28,11 @@ pub enum ItemKind {
         name_token: Token,
         equals_type: Option<Box<EqualsType>>,
     },
+    Struct {
+        struct_token: Token,
+        name_token: Token,
+        members: Members,
+    },
     Function {
         fn_token: Token,
         name_token: Token,
@@ -40,6 +45,20 @@ pub enum ItemKind {
 #[derive(Debug)]
 pub struct EqualsType {
     pub equal_token: Token,
+    pub typ: Expression,
+}
+
+#[derive(Debug)]
+pub struct Members {
+    pub open_brace_token: Token,
+    pub members: Box<[Member]>,
+    pub close_brace_token: Token,
+}
+
+#[derive(Debug)]
+pub struct Member {
+    pub name_token: Token,
+    pub colon_token: Token,
     pub typ: Expression,
 }
 
@@ -122,6 +141,10 @@ pub enum ExpressionKind {
         let_token: Token,
         name_token: Token,
         colon_type: Option<Box<ColonType>>,
+    },
+    Constructor {
+        typ: Box<Expression>,
+        members: Members,
     },
 }
 

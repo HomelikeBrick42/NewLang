@@ -1,9 +1,11 @@
 use crate::{
     ast,
     inferring_tree::{self as it, BuiltinType},
+    interning::InternedStr,
     ir,
     lexer::SourceLocation,
 };
+use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SlotMap};
 
 pub fn convert_function(
@@ -184,8 +186,9 @@ pub fn convert_function(
                         },
                         ir::Instruction {
                             location: function.location,
-                            kind: ir::InstructionKind::AssumeInit {
-                                variable: unit_value,
+                            kind: ir::InstructionKind::ConstructStruct {
+                                destination: unit_value,
+                                members: vec![],
                             },
                         },
                         ir::Instruction {
@@ -400,6 +403,94 @@ pub fn emit_expression(
 
             return_variable
         }
+
+        it::ExpressionKind::Constructor { ref members } => {
+            let member_variables = members
+                .iter()
+                .map(
+                    |&it::ConstructorMember {
+                         location: _,
+                         name,
+                         ref value,
+                     }| {
+                        Ok((
+                            name,
+                            emit_expression(
+                                value,
+                                ir_program,
+                                inferring_program,
+                                variables,
+                                inferring_variables_map,
+                                scope_variables,
+                                blocks,
+                                current_block,
+                            )?,
+                        ))
+                    },
+                )
+                .collect::<Result<Vec<_>, ToIrError>>()?;
+
+            match ir_program.types[typ].kind {
+                ir::TypeKind::Struct {
+                    name: _,
+                    members: ref struct_members,
+                } => {
+                    let mut struct_members = struct_members
+                        .iter()
+                        .map(|member| (member.name, member.typ))
+                        .collect::<FxHashMap<_, _>>();
+
+                    for (i, member) in members.iter().enumerate() {
+                        match struct_members.remove(&member.name) {
+                            Some(typ) => {
+                                expect_types_same(
+                                    member.location,
+                                    variables[member_variables[i].1].typ,
+                                    typ,
+                                )?;
+                            }
+                            None => {
+                                return Err(ToIrError {
+                                    location: member.location,
+                                    kind: ToIrErrorKind::UnknownMember {
+                                        type_id: typ,
+                                        name: member.name,
+                                    },
+                                });
+                            }
+                        }
+                    }
+
+                    if let Some((name, _)) = struct_members.into_iter().next() {
+                        return Err(ToIrError {
+                            location,
+                            kind: ToIrErrorKind::MemberNotConstructed { type_id: typ, name },
+                        });
+                    }
+                }
+
+                _ => {
+                    return Err(ToIrError {
+                        location,
+                        kind: ToIrErrorKind::ExpectedStructOrEnumTypeButGot { got_id: typ },
+                    });
+                }
+            }
+
+            let variable = variables.insert(ir::Variable {
+                location,
+                name: None,
+                typ,
+            });
+            blocks[*current_block].instructions.push(ir::Instruction {
+                location,
+                kind: ir::InstructionKind::ConstructStruct {
+                    destination: variable,
+                    members: member_variables,
+                },
+            });
+            variable
+        }
     })
 }
 
@@ -597,8 +688,105 @@ pub fn assign_pattern(
                 kind: ToIrErrorKind::PatternNotAssignable,
             });
         }
+
+        it::PatternKind::Deconstructor { ref members } => {
+            let member_variables = members
+                .iter()
+                .map(
+                    |&it::DeconstructorMember {
+                         location,
+                         name,
+                         ref pattern,
+                     }| {
+                        Ok((
+                            name,
+                            variables.insert(ir::Variable {
+                                location,
+                                name: None,
+                                typ: convert_type(pattern.typ, ir_program, inferring_program)?,
+                            }),
+                        ))
+                    },
+                )
+                .collect::<Result<Vec<_>, _>>()?;
+
+            match ir_program.types[typ].kind {
+                ir::TypeKind::Struct {
+                    name: _,
+                    members: ref struct_members,
+                } => {
+                    let mut struct_members = struct_members
+                        .iter()
+                        .map(|member| (member.name, member.typ))
+                        .collect::<FxHashMap<_, _>>();
+
+                    for (i, member) in members.iter().enumerate() {
+                        match struct_members.remove(&member.name) {
+                            Some(typ) => {
+                                expect_types_same(
+                                    member.location,
+                                    variables[member_variables[i].1].typ,
+                                    typ,
+                                )?;
+                            }
+                            None => {
+                                return Err(ToIrError {
+                                    location: member.location,
+                                    kind: ToIrErrorKind::UnknownMember {
+                                        type_id: typ,
+                                        name: member.name,
+                                    },
+                                });
+                            }
+                        }
+                    }
+
+                    if let Some((name, _)) = struct_members.into_iter().next() {
+                        return Err(ToIrError {
+                            location,
+                            kind: ToIrErrorKind::MemberNotDeconstructed { type_id: typ, name },
+                        });
+                    }
+                }
+
+                _ => {
+                    return Err(ToIrError {
+                        location,
+                        kind: ToIrErrorKind::ExpectedStructOrEnumTypeButGot { got_id: typ },
+                    });
+                }
+            }
+
+            blocks[*current_block].instructions.push(ir::Instruction {
+                location,
+                kind: ir::InstructionKind::DeconstructStruct {
+                    source: value,
+                    members: member_variables.clone(),
+                },
+            });
+
+            for (i, member) in members.into_iter().enumerate() {
+                assign_pattern(
+                    &member.pattern,
+                    member_variables[i].1,
+                    ir_program,
+                    inferring_program,
+                    variables,
+                    inferring_variables_map,
+                    scope_variables,
+                    blocks,
+                    current_block,
+                )?;
+            }
+
+            for (_, variable) in member_variables.into_iter().rev() {
+                blocks[*current_block].instructions.push(ir::Instruction {
+                    location,
+                    kind: ir::InstructionKind::StorageDead { variable },
+                });
+            }
+        }
     }
-    #[expect(unreachable_code)]
     Ok(())
 }
 
@@ -684,6 +872,27 @@ pub fn convert_type(
         it::TypeKind::Unit => ir::TypeKind::Unit,
         it::TypeKind::Runtime => ir::TypeKind::Runtime,
         it::TypeKind::I64 => ir::TypeKind::I64,
+
+        it::TypeKind::Struct { name, ref members } => ir::TypeKind::Struct {
+            name,
+            members: members
+                .iter()
+                .map(
+                    |&it::TypeMember {
+                         location,
+                         name,
+                         typ,
+                     }| {
+                        Ok(ir::TypeMember {
+                            location,
+                            name,
+                            typ: convert_type(typ, ir_program, inferring_program)?,
+                        })
+                    },
+                )
+                .collect::<Result<_, ToIrError>>()?,
+        },
+
         it::TypeKind::FunctionItem {
             function,
             parameters: _,
@@ -722,4 +931,19 @@ pub enum ToIrErrorKind {
     },
     IntegerTooBigForI64,
     PatternNotAssignable,
+    ExpectedStructOrEnumTypeButGot {
+        got_id: ir::TypeId,
+    },
+    UnknownMember {
+        type_id: ir::TypeId,
+        name: InternedStr,
+    },
+    MemberNotConstructed {
+        type_id: ir::TypeId,
+        name: InternedStr,
+    },
+    MemberNotDeconstructed {
+        type_id: ir::TypeId,
+        name: InternedStr,
+    },
 }
