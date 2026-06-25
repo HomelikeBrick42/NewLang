@@ -168,6 +168,16 @@ pub fn analyze_function(
                             &variable_initialization,
                             errors,
                         );
+                        variable_initialization[variable] = false;
+
+                        for (variable, initialized) in variable_initialization {
+                            if initialized {
+                                panic!(
+                                    "Compiler bug, variable created at {} with type {:?} was not marked as storage dead on return",
+                                    variables[variable].location, variables[variable].typ,
+                                )
+                            }
+                        }
                     }
 
                     ir::JumpKind::Call {

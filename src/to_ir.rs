@@ -67,7 +67,11 @@ pub fn convert_function(
             });
 
             let mut current_block = entry_block;
-            let mut scope_variables = vec![];
+            let mut scope_variables = parameter_variables
+                .iter()
+                .flatten()
+                .map(|&id| inferring_variables_map[id])
+                .collect();
             let expression_result = emit_expression(
                 expression,
                 ir_program,
@@ -104,9 +108,8 @@ pub fn convert_function(
                 variables,
                 parameter_variables: parameter_variables
                     .iter()
-                    .copied()
                     .flatten()
-                    .map(|id| inferring_variables_map[id])
+                    .map(|&id| inferring_variables_map[id])
                     .collect(),
                 blocks,
                 entry_block,
