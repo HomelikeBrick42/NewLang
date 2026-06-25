@@ -319,6 +319,50 @@ pub fn parse_expression(lexer: &mut Lexer<'_>) -> Result<Expression, ParsingErro
             },
         },
 
+        fn_token @ Token {
+            location,
+            kind: TokenKind::FnKeyword,
+        } => Expression {
+            location,
+            kind: ExpressionKind::Function {
+                fn_token,
+                parameters: {
+                    let open_parenthesis_token = expect_token!(lexer, TokenKind::OpenParenthesis)?;
+                    let mut parameters = vec![];
+                    let close_parenthesis_token = loop {
+                        eat_token!(lexer, TokenKind::Newline)?;
+                        if let Some(close_parenthesis_token) =
+                            eat_token!(lexer, TokenKind::CloseParenthesis)?
+                        {
+                            break close_parenthesis_token;
+                        }
+                        parameters.push(parse_parameter(lexer)?);
+                        if let Some(close_parenthesis_token) =
+                            eat_token!(lexer, TokenKind::CloseParenthesis)?
+                        {
+                            break close_parenthesis_token;
+                        }
+                        eat_token!(lexer, TokenKind::Comma)?;
+                    };
+                    Parameters {
+                        open_parenthesis_token,
+                        parameters: parameters.into_boxed_slice(),
+                        close_parenthesis_token,
+                    }
+                },
+                return_type: if let Some(right_arrow_token) =
+                    eat_token!(lexer, TokenKind::RightArrow)?
+                {
+                    Some(Box::new(ReturnType {
+                        right_arrow_token,
+                        typ: parse_expression(lexer)?,
+                    }))
+                } else {
+                    None
+                },
+            },
+        },
+
         token => {
             return Err(ParsingError {
                 location: token.location,

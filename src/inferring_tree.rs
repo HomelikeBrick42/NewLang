@@ -175,9 +175,8 @@ pub enum TypeKind {
         name: InternedStr,
         members: Box<[TypeMember]>,
     },
-    FunctionItem {
-        function: FunctionId,
-        parameters: Box<[ParameterType]>,
+    Function {
+        parameters: Box<[TypeParameter]>,
         return_type: TypeId,
     },
 }
@@ -187,10 +186,6 @@ pub enum InferTypeKind {
     Anything,
     StructLike {
         members: FxHashMap<InternedStr, TypeId>,
-    },
-    FunctionLike {
-        parameters: Box<[ParameterType]>,
-        return_type: TypeId,
     },
 }
 
@@ -202,7 +197,7 @@ pub struct TypeMember {
 }
 
 #[derive(Debug, Clone)]
-pub enum ParameterType {
+pub enum TypeParameter {
     Value { typ: TypeId },
 }
 
@@ -234,35 +229,6 @@ impl Display for PrettyPrintType<'_> {
                     }
                     write!(f, " }}")
                 }
-                InferTypeKind::FunctionLike {
-                    ref parameters,
-                    return_type,
-                } => {
-                    write!(f, "fn(")?;
-                    for (i, parameter) in parameters.iter().enumerate() {
-                        if i > 0 {
-                            write!(f, ", ")?;
-                        }
-                        match *parameter {
-                            ParameterType::Value { typ } => write!(
-                                f,
-                                "_: {}",
-                                PrettyPrintType {
-                                    id: typ,
-                                    types: self.types,
-                                },
-                            )?,
-                        }
-                    }
-                    write!(
-                        f,
-                        ") -> {}",
-                        PrettyPrintType {
-                            id: return_type,
-                            types: self.types,
-                        },
-                    )
-                }
             },
             TypeKind::Inferred(id) => write!(
                 f,
@@ -275,36 +241,18 @@ impl Display for PrettyPrintType<'_> {
             TypeKind::Unit => write!(f, "Unit"),
             TypeKind::Runtime => write!(f, "Runtime"),
             TypeKind::I64 => write!(f, "I64"),
-            TypeKind::Struct { name, ref members } => {
-                write!(f, "{name} {{ ")?;
-                for (i, member) in members.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(
-                        f,
-                        "{}: {}",
-                        member.name,
-                        PrettyPrintType {
-                            id: member.typ,
-                            types: self.types,
-                        },
-                    )?;
-                }
-                write!(f, " }}")
-            }
-            TypeKind::FunctionItem {
-                function: _,
+            TypeKind::Struct { name, members: _ } => write!(f, "{name}"),
+            TypeKind::Function {
                 ref parameters,
                 return_type,
             } => {
-                write!(f, "fn_item(")?;
+                write!(f, "fn(")?;
                 for (i, parameter) in parameters.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
                     match *parameter {
-                        ParameterType::Value { typ } => write!(
+                        TypeParameter::Value { typ } => write!(
                             f,
                             "_: {}",
                             PrettyPrintType {

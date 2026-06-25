@@ -1,10 +1,9 @@
-use std::collections::VecDeque;
-
 use crate::{ast, inferring_tree as it, interning::InternedStr, lexer::SourceLocation};
 use derive_more::Display;
 use enum_map::enum_map;
 use rustc_hash::{FxHashMap, FxHashSet};
 use slotmap::{SecondaryMap, SlotMap, new_key_type};
+use std::collections::VecDeque;
 
 new_key_type! {
     pub struct ItemId;
@@ -292,29 +291,25 @@ fn resolve_item<'ast>(
                 false,
             )?;
 
-            let function_id = program.functions.insert_with_key(|id| {
-                let function_type = program.types.insert(it::Type {
+            let function_id = program.functions.insert(it::Function {
+                location: item.location,
+                name: Some(name),
+                function_type: program.types.insert(it::Type {
                     location: item.location,
-                    kind: it::TypeKind::FunctionItem {
-                        function: id,
+                    kind: it::TypeKind::Function {
                         parameters: parameters
                             .iter()
                             .map(|parameter| match parameter.kind {
                                 it::ParameterKind::Value { typ } => {
-                                    it::ParameterType::Value { typ }
+                                    it::TypeParameter::Value { typ }
                                 }
                             })
                             .collect(),
                         return_type,
                     },
-                });
-                it::Function {
-                    location: item.location,
-                    name: Some(name),
-                    parameters,
-                    return_type,
-                    function_type,
-                }
+                }),
+                parameters,
+                return_type,
             });
 
             match *body {
@@ -729,6 +724,44 @@ fn resolve_type<'ast>(
                     kind: ResolvingErrorKind::InferCannotBeUsed,
                 });
             }
+        }
+
+        ast::TypeKind::Function {
+            ref parameters,
+            ref return_type,
+        } => {
+            let parameters = parameters
+                .iter()
+                .map(|ast::Parameter { location: _, kind }| {
+                    Ok(match kind {
+                        ast::ParameterKind::Value { name: _, typ } => it::TypeParameter::Value {
+                            typ: resolve_type(
+                                typ,
+                                program,
+                                resolving_items,
+                                delayed_resolutions,
+                                names,
+                                infer_allowed,
+                            )?,
+                        },
+                    })
+                })
+                .collect::<Result<_, ResolvingError>>()?;
+            let return_type = resolve_type(
+                return_type,
+                program,
+                resolving_items,
+                delayed_resolutions,
+                names,
+                infer_allowed,
+            )?;
+            program.types.insert(it::Type {
+                location: typ.location,
+                kind: it::TypeKind::Function {
+                    parameters,
+                    return_type,
+                },
+            })
         }
 
         ast::TypeKind::Name(name) => match resolve_name(

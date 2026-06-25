@@ -1,7 +1,7 @@
 use crate::{
     inferring_tree::{
-        Argument, Expression, ExpressionKind, FunctionBody, InferTypeKind, ParameterType, Pattern,
-        PatternKind, Place, PlaceKind, Program, Statement, StatementKind, Type, TypeId, TypeKind,
+        Argument, Expression, ExpressionKind, FunctionBody, InferTypeKind, Pattern, PatternKind,
+        Place, PlaceKind, Program, Statement, StatementKind, Type, TypeId, TypeKind, TypeParameter,
     },
     lexer::SourceLocation,
 };
@@ -86,17 +86,17 @@ pub fn infer_expression(
             // TODO: make this better so that the expected and got types are the right way around
             let function_type = types.insert(Type {
                 location: expression.location,
-                kind: TypeKind::Infer(InferTypeKind::FunctionLike {
+                kind: TypeKind::Function {
                     parameters: arguments
                         .iter()
                         .map(|argument| match *argument {
-                            Argument::Value { ref expression } => ParameterType::Value {
+                            Argument::Value { ref expression } => TypeParameter::Value {
                                 typ: expression.typ,
                             },
                         })
                         .collect(),
                     return_type: expression.typ,
-                }),
+                },
             });
 
             infer_expression(operand, Some(function_type), types, errors);
@@ -193,6 +193,10 @@ pub fn infer_equal(
     }
     if let TypeKind::Inferred(expected_type) = types[expected_id].kind {
         return infer_equal(location, got_id, expected_type, types, errors);
+    }
+
+    if type_contains(got_id, expected_id, types) || type_contains(expected_id, got_id, types) {
+        return false;
     }
 
     match (&types[got_id].kind, &types[expected_id].kind) {
@@ -313,61 +317,11 @@ pub fn infer_equal(
         }
 
         (
-            &TypeKind::FunctionItem {
-                function: _,
+            &TypeKind::Function {
                 parameters: ref got_parameters,
                 return_type: got_return_type,
             },
-            &TypeKind::Infer(InferTypeKind::FunctionLike {
-                parameters: ref expected_parameters,
-                return_type: expected_return_type,
-            }),
-        ) if got_parameters.len() == expected_parameters.len() => {
-            let mut equal = true;
-            for (got_parameter, expected_parameter) in got_parameters
-                .clone()
-                .into_iter()
-                .zip(expected_parameters.clone())
-            {
-                match (got_parameter, expected_parameter) {
-                    (
-                        ParameterType::Value { typ: got_id },
-                        ParameterType::Value { typ: expected_id },
-                    ) => equal &= infer_equal(location, got_id, expected_id, types, errors),
-                }
-            }
-            equal &= infer_equal(
-                location,
-                got_return_type,
-                expected_return_type,
-                types,
-                errors,
-            );
-            if equal {
-                types[expected_id].kind = TypeKind::Inferred(got_id);
-            } else {
-                errors.push(InferringError {
-                    location,
-                    kind: InferringErrorKind::ExpectedTypeButGotType {
-                        expected_id,
-                        got_id,
-                    },
-                });
-            }
-            equal
-        }
-
-        (
-            &TypeKind::Infer(InferTypeKind::FunctionLike {
-                parameters: ref got_parameters,
-                return_type: got_return_type,
-            }),
-            &TypeKind::Infer(InferTypeKind::FunctionLike {
-                parameters: ref expected_parameters,
-                return_type: expected_return_type,
-            })
-            | &TypeKind::FunctionItem {
-                function: _,
+            &TypeKind::Function {
                 parameters: ref expected_parameters,
                 return_type: expected_return_type,
             },
@@ -380,8 +334,8 @@ pub fn infer_equal(
             {
                 match (got_parameter, expected_parameter) {
                     (
-                        ParameterType::Value { typ: got_id },
-                        ParameterType::Value { typ: expected_id },
+                        TypeParameter::Value { typ: got_id },
+                        TypeParameter::Value { typ: expected_id },
                     ) => equal &= infer_equal(location, got_id, expected_id, types, errors),
                 }
             }
@@ -415,6 +369,40 @@ pub fn infer_equal(
                 },
             });
             false
+        }
+    }
+}
+
+// returns true if a contains b
+fn type_contains(a: TypeId, b: TypeId, types: &SlotMap<TypeId, Type>) -> bool {
+    if a == b {
+        return true;
+    }
+
+    match types[a].kind {
+        TypeKind::Resolving => false,
+        TypeKind::Infer(ref infer_type_kind) => match *infer_type_kind {
+            InferTypeKind::Anything => false,
+            InferTypeKind::StructLike { ref members } => {
+                members.iter().any(|(_, &typ)| type_contains(typ, b, types))
+            }
+        },
+        TypeKind::Inferred(id) => type_contains(id, b, types),
+        TypeKind::Unit => false,
+        TypeKind::Runtime => false,
+        TypeKind::I64 => false,
+        TypeKind::Struct {
+            name: _,
+            members: _,
+        } => false,
+        TypeKind::Function {
+            ref parameters,
+            return_type,
+        } => {
+            type_contains(return_type, b, types)
+                || parameters.iter().any(|parameter| match *parameter {
+                    TypeParameter::Value { typ } => type_contains(typ, b, types),
+                })
         }
     }
 }

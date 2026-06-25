@@ -26,4 +26,11 @@ fn main(runtime: Runtime) {
     _ { member: _ } = x
     _ { member: let value } = x
     print_i64(value, runtime)
+
+    let f: fn() = foo
+    f()
+
+    {}
 }
+
+fn foo() {}

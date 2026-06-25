@@ -1,5 +1,6 @@
 use crate::{inferring_tree as it, interning::InternedStr, lexer::SourceLocation};
 use enum_map::EnumMap;
+use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SlotMap, new_key_type};
 use std::fmt::Display;
 
@@ -10,6 +11,7 @@ pub struct Program {
     pub inferring_types_map: SecondaryMap<it::TypeId, TypeId>,
     pub types: SlotMap<TypeId, Type>,
     pub builtin_types: EnumMap<it::BuiltinType, Option<TypeId>>,
+    pub function_types: FxHashMap<(Box<[TypeParameter]>, TypeId), TypeId>,
 }
 
 new_key_type! {
@@ -136,7 +138,10 @@ pub enum TypeKind {
         name: InternedStr,
         members: Box<[TypeMember]>,
     },
-    FunctionItem(FunctionId),
+    Function {
+        parameters: Box<[TypeParameter]>,
+        return_type: TypeId,
+    },
 }
 
 #[derive(Debug)]
@@ -144,6 +149,11 @@ pub struct TypeMember {
     pub location: SourceLocation,
     pub name: InternedStr,
     pub typ: TypeId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TypeParameter {
+    Value { typ: TypeId },
 }
 
 pub struct PrettyPrintType<'a> {
@@ -158,25 +168,36 @@ impl Display for PrettyPrintType<'_> {
             TypeKind::Unit => write!(f, "Unit"),
             TypeKind::Runtime => write!(f, "Runtime"),
             TypeKind::I64 => write!(f, "I64"),
-            TypeKind::Struct { name, ref members } => {
-                write!(f, "{name} {{ ")?;
-                for (i, member) in members.iter().enumerate() {
+            TypeKind::Struct { name, members: _ } => write!(f, "{name}"),
+            TypeKind::Function {
+                ref parameters,
+                return_type,
+            } => {
+                write!(f, "fn(")?;
+                for (i, parameter) in parameters.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(
-                        f,
-                        "{}: {}",
-                        member.name,
-                        PrettyPrintType {
-                            id: member.typ,
-                            types: self.types,
-                        },
-                    )?;
+                    match *parameter {
+                        TypeParameter::Value { typ } => write!(
+                            f,
+                            "_: {}",
+                            PrettyPrintType {
+                                id: typ,
+                                types: self.types,
+                            },
+                        )?,
+                    }
                 }
-                write!(f, " }}")
+                write!(
+                    f,
+                    ") -> {}",
+                    PrettyPrintType {
+                        id: return_type,
+                        types: self.types,
+                    },
+                )
             }
-            TypeKind::FunctionItem(_) => write!(f, "fn_item(...) -> _"),
         }
     }
 }

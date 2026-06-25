@@ -1,3 +1,5 @@
+use std::collections::hash_map::Entry;
+
 use crate::{
     ast,
     inferring_tree::{self as it, BuiltinType},
@@ -898,11 +900,40 @@ pub fn convert_type(
                 .collect::<Result<_, ToIrError>>()?,
         },
 
-        it::TypeKind::FunctionItem {
-            function,
-            parameters: _,
-            return_type: _,
-        } => ir::TypeKind::FunctionItem(convert_function(function, ir_program, inferring_program)?),
+        it::TypeKind::Function {
+            ref parameters,
+            return_type,
+        } => {
+            let parameters = parameters
+                .iter()
+                .map(|parameter| {
+                    Ok(match *parameter {
+                        it::TypeParameter::Value { typ } => ir::TypeParameter::Value {
+                            typ: convert_type(typ, ir_program, inferring_program)?,
+                        },
+                    })
+                })
+                .collect::<Result<Box<[_]>, ToIrError>>()?;
+            let return_type = convert_type(return_type, ir_program, inferring_program)?;
+
+            // TODO: is this ok?
+            ir_program.types.remove(id);
+            let id = match ir_program
+                .function_types
+                .entry((parameters.clone(), return_type))
+            {
+                Entry::Occupied(e) => *e.get(),
+                Entry::Vacant(e) => *e.insert(ir_program.types.insert(ir::Type {
+                    location: inferring_program.types[type_id].location,
+                    kind: ir::TypeKind::Function {
+                        parameters,
+                        return_type,
+                    },
+                })),
+            };
+            ir_program.inferring_types_map[type_id] = id;
+            return Ok(id);
+        }
     };
     Ok(id)
 }

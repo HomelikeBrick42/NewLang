@@ -1,4 +1,5 @@
 use enum_map::enum_map;
+use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SlotMap};
 
 use crate::{
@@ -147,6 +148,7 @@ fn main() -> ExitCode {
         inferring_types_map: SecondaryMap::new(),
         types: SlotMap::with_key(),
         builtin_types: enum_map! { _ => None },
+        function_types: FxHashMap::default(),
     };
 
     {

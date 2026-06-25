@@ -160,6 +160,10 @@ pub enum TypeKind {
     Name(InternedStr),
     DeclareBuiltin(BuiltinTypeAlias),
     Builtin(BuiltinType),
+    Function {
+        parameters: Box<[Parameter]>,
+        return_type: Box<Type>,
+    },
 }
 
 #[derive(Debug)]

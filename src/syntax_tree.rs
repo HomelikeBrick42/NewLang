@@ -149,6 +149,11 @@ pub enum ExpressionKind {
         typ: Box<Expression>,
         members: Members,
     },
+    Function {
+        fn_token: Token,
+        parameters: Parameters,
+        return_type: Option<Box<ReturnType>>,
+    },
 }
 
 #[derive(Debug)]

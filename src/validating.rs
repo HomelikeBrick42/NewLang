@@ -297,7 +297,7 @@ pub fn validate_expression(
                     .collect::<Result<_, ValidatingError>>()?,
             },
 
-            st::ExpressionKind::Placeholder { .. } => {
+            st::ExpressionKind::Placeholder { .. } | st::ExpressionKind::Function { .. } => {
                 return Err(ValidatingError {
                     location,
                     kind: ValidatingErrorKind::ExpectedExpression,
@@ -360,7 +360,9 @@ pub fn validate_pattern(
                     .collect::<Result<_, ValidatingError>>()?,
             },
 
-            st::ExpressionKind::Block { .. } | st::ExpressionKind::Call { .. } => {
+            st::ExpressionKind::Block { .. }
+            | st::ExpressionKind::Call { .. }
+            | st::ExpressionKind::Function { .. } => {
                 return Err(ValidatingError {
                     location,
                     kind: ValidatingErrorKind::ExpectedPattern,
@@ -409,7 +411,8 @@ pub fn validate_place(
             | st::ExpressionKind::Placeholder { .. }
             | st::ExpressionKind::Integer { .. }
             | st::ExpressionKind::Call { .. }
-            | st::ExpressionKind::Constructor { .. } => unreachable!(),
+            | st::ExpressionKind::Constructor { .. }
+            | st::ExpressionKind::Function { .. } => unreachable!(),
         },
     })
 }
@@ -428,6 +431,45 @@ pub fn validate_type(
                 };
                 ast::TypeKind::Name(name)
             }
+
+            st::ExpressionKind::Function {
+                fn_token: _,
+                parameters,
+                return_type,
+            } => ast::TypeKind::Function {
+                parameters: parameters
+                    .parameters
+                    .iter()
+                    .map(|parameter| {
+                        Ok(ast::Parameter {
+                            location: parameter.location,
+                            kind: match parameter.kind {
+                                st::ParameterKind::Value {
+                                    ref name_token,
+                                    colon_token: _,
+                                    ref typ,
+                                } => ast::ParameterKind::Value {
+                                    name: {
+                                        let TokenKind::Name(name) = name_token.kind else {
+                                            unreachable!()
+                                        };
+                                        name
+                                    },
+                                    typ: Box::new(validate_type(typ)?),
+                                },
+                            },
+                        })
+                    })
+                    .collect::<Result<_, ValidatingError>>()?,
+                return_type: if let Some(return_type) = return_type {
+                    Box::new(validate_type(&return_type.typ)?)
+                } else {
+                    Box::new(ast::Type {
+                        location: parameters.close_parenthesis_token.location,
+                        kind: ast::TypeKind::Builtin(ast::BuiltinType::Unit),
+                    })
+                },
+            },
 
             st::ExpressionKind::ParenthesisedExpression { .. }
             | st::ExpressionKind::Block { .. }
