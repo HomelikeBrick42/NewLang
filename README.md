@@ -176,3 +176,89 @@ fn foo(type[type T] Bar) {
 // sort of like passing a closure that takes a type T and gives a new type, which in this case is Option[T]
 foo(type[type T] Option[T])
 ```
+
+## Runtime type parameters
+
+```rust
+// the limitations of `dyn` type parameters is that they cant be generic, and also you cant use `T` by-value anywhere,
+// and cant be passed where regular `type`s are expected
+fn foo(dyn T, value: &T) {
+    // ...
+}
+
+// `foo` doesnt even need to be a `const` value unlike other type-generic functions, its fully type erased
+foo(I32, &5)
+```
+```rust
+// you can also use it to make vtables that are dyn-compatible
+struct SomeVtable[dyn T] {
+    method: fn(&T),
+}
+
+// you can do this because it doesnt matter what T is, it doesnt effect the memory layout of SomeVtable[T]
+fn foo(dyn T, value: &T, vtable: SomeVtable[T]) {
+    vtable.method(value)
+}
+
+fn bar(value: &I32) {
+    // ...
+}
+
+// this will be type checked, all the mentions of T in this call must be the same
+foo(I32, &5, SomeVtable[I32] { method: bar })
+```
+
+### Type erasure
+
+###### (this is ignoring lifetimes but they can work with this)
+
+```rust
+// this type will be in the standard library
+struct Erased[type[dyn T] Type] {
+    // implementation detail, Unit is just used as a placeholder, whatever is used for T here doesnt matter
+    value: Type[Unit],
+}
+
+// construct an Erased from a value
+fn erase[type[dyn T] Type, type U](value: Type[U]) -> Erased[Type] {
+    // just a transmute, the memory layout of `value` cant be any different so this is fine because Erased will never try to use `value` as if it had the type Unit
+    unsafe { Erased { value: transmute(value) } }
+}
+
+// access the value in a callback that doesnt know the real type
+fn access[type[dyn T] Type](erased: &Erased[Type], callback: fn(dyn U, value: &Type[U])) {
+    callback(Unit, &erased.value) // its fine that this is called with the "wrong" type T, `callback` doesnt know what the type is
+}
+```
+```rust
+// using Erased
+
+struct SomeVtable[dyn T] {
+    method: fn(&T),
+}
+
+struct DataAndVtable[dyn T] {
+    data: &T,
+    vtable: SomeVtable[T],
+}
+
+let data = 5
+
+// all that is known here is that there is *some* type `T`, but its unknown
+let e: Erased[type[dyn T] DataAndVtable[T]]
+
+// this is the only place that knows about that its I32
+e = erase(DataAndVtable[I32] {
+    data: &data,
+    vtable: SomeVtable[I32] {
+        method: fn(value: &I32) {
+            // do something specific for I32 idk
+        },
+    },
+})
+
+access(&e, fn(dyn T, value: DataAndVtable[T]) {
+    // you can still call the methods, and its completely type erased!
+    value.vtable.method(vtable.data)
+})
+```
