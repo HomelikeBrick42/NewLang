@@ -257,7 +257,7 @@ e = erase(DataAndVtable[I32] {
     },
 })
 
-access(&e, fn(dyn T, value: DataAndVtable[T]) {
+access(&e, fn(dyn T, value: &DataAndVtable[T]) {
     // you can still call the methods, and its completely type erased!
     value.vtable.method(vtable.data)
 })
