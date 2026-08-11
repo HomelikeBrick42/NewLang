@@ -10,27 +10,31 @@ type I64
 #[builtin]
 fn print_i64(value: I64, runtime: Runtime)
 
-fn main(runtime: Runtime) {
-    print_i64(5, runtime)
+#[builtin]
+fn transmute(type T, type U, value: T) -> U
 
-    let variable = 6
-    print_i64(variable, runtime)
-
-    struct Foo {
-        member: I64,
-    }
-
-    let x = Foo {
-        member: 5,
-    }
-    _ { member: _ } = x
-    _ { member: let value } = x
-    print_i64(value, runtime)
-
-    let f: fn() = foo
-    f()
-
-    {}
+struct Erased(type(dyn T) Type) {
+    value: Type(Unit),
 }
 
-fn foo() {}
+fn erase(type(dyn U) Type, type T, value: Type(T)) -> Erased(Type) {
+    Erased(Type) {
+        value: transmute(Type(T), Type(Unit), value),
+    }
+}
+
+fn access(type(dyn T) Type, erased: Erased(Type), callback: fn(dyn U, value: Type(U))) {
+    callback(Unit, erased.value)
+}
+
+fn main(runtime: Runtime) -> Unit {
+    print_i64(5, runtime)
+
+    let variable: I64 = 6
+    print_i64(variable, runtime)
+
+    struct Stuff(dyn T) {}
+
+    let erased: Erased(Stuff) = erase(Stuff, I32, Stuff(I32) {})
+    access(Stuff, erased, fn(dyn U, value: Stuff(U)) {})
+}

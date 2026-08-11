@@ -10,11 +10,13 @@ pub struct Item {
 pub enum ItemKind {
     Type {
         name: InternedStr,
+        parameters: Option<Box<[Parameter]>>,
         typ: Type,
     },
     Struct {
         builtin_type: Option<BuiltinStruct>,
         name: InternedStr,
+        parameters: Option<Box<[Parameter]>>,
         members: Box<[StructMember]>,
     },
     Function {
@@ -45,7 +47,18 @@ pub struct Parameter {
 
 #[derive(Debug)]
 pub enum ParameterKind {
-    Value { name: InternedStr, typ: Box<Type> },
+    Value {
+        name: InternedStr,
+        typ: Box<Type>,
+    },
+    Type {
+        parameters: Option<Box<[Parameter]>>,
+        name: InternedStr,
+    },
+    Dyn {
+        parameters: Option<Box<[Parameter]>>,
+        name: InternedStr,
+    },
 }
 
 #[derive(Debug)]
@@ -57,6 +70,7 @@ pub enum FunctionBody {
 #[derive(Debug, Clone, Copy)]
 pub enum BuiltinFunctionBody {
     PrintI64,
+    Transmute,
 }
 
 #[derive(Debug)]
@@ -98,11 +112,32 @@ pub enum ExpressionKind {
         typ: Box<Type>,
         members: Box<[ConstructorMember]>,
     },
+    Function {
+        parameters: Box<[Parameter]>,
+        return_type: Box<Type>,
+        body: Box<Expression>,
+    },
 }
 
 #[derive(Debug)]
-pub enum Argument {
-    Value { expression: Expression },
+pub struct Argument {
+    pub location: SourceLocation,
+    pub kind: ArgumentKind,
+}
+
+#[derive(Debug)]
+pub enum ArgumentKind {
+    Value {
+        expression: Expression,
+    },
+    Type {
+        parameters: Option<Box<[Parameter]>>,
+        typ: Box<Type>,
+    },
+    Dyn {
+        parameters: Option<Box<[Parameter]>>,
+        typ: Box<Type>,
+    },
 }
 
 #[derive(Debug)]
@@ -122,7 +157,6 @@ pub struct Pattern {
 pub enum PatternKind {
     Place(Box<Place>),
     Integer(u64),
-    Discard,
     Deconstructor {
         typ: Box<Type>,
         members: Box<[DeconstructorMember]>,
@@ -145,7 +179,14 @@ pub struct Place {
 #[derive(Debug)]
 pub enum PlaceKind {
     Name(InternedStr),
-    Let { name: InternedStr, typ: Box<Type> },
+    Let {
+        name: InternedStr,
+        typ: Box<Type>,
+    },
+    MemberAccess {
+        operand: Box<Expression>,
+        member_name: InternedStr,
+    },
 }
 
 #[derive(Debug)]
@@ -156,13 +197,16 @@ pub struct Type {
 
 #[derive(Debug)]
 pub enum TypeKind {
-    Infer,
     Name(InternedStr),
     DeclareBuiltin(BuiltinTypeAlias),
     Builtin(BuiltinType),
     Function {
         parameters: Box<[Parameter]>,
         return_type: Box<Type>,
+    },
+    Arguments {
+        typ: Box<Type>,
+        arguments: Box<[Argument]>,
     },
 }
 

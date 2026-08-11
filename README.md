@@ -1,5 +1,7 @@
 # Language Idea
 
+The syntax is out of date and may be changed
+
 ## References
 
 ```rust

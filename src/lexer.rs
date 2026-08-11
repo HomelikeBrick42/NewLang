@@ -35,6 +35,8 @@ pub enum TokenKind {
     FnKeyword,
     #[display("type")]
     TypeKeyword,
+    #[display("dyn")]
+    DynKeyword,
     #[display("let")]
     LetKeyword,
     #[display("struct")]
@@ -52,6 +54,8 @@ pub enum TokenKind {
     Comma,
     #[display("=")]
     Equal,
+    #[display(".")]
+    Period,
 
     #[display("(")]
     OpenParenthesis,
@@ -141,6 +145,7 @@ impl<'source> Lexer<'source> {
                     Some(':') => TokenKind::Colon,
                     Some(',') => TokenKind::Comma,
                     Some('=') => TokenKind::Equal,
+                    Some('.') => TokenKind::Period,
 
                     Some('(') => TokenKind::OpenParenthesis,
                     Some(')') => TokenKind::CloseParenthesis,
@@ -213,6 +218,7 @@ impl<'source> Lexer<'source> {
                             "_" => TokenKind::Placeholder,
                             "fn" => TokenKind::FnKeyword,
                             "type" => TokenKind::TypeKeyword,
+                            "dyn" => TokenKind::DynKeyword,
                             "let" => TokenKind::LetKeyword,
                             "struct" => TokenKind::StructKeyword,
                             "enum" => TokenKind::EnumKeyword,

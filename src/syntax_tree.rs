@@ -26,17 +26,19 @@ pub enum ItemKind {
     Type {
         type_token: Token,
         name_token: Token,
+        parameters: Option<Box<ParenthesisParameters>>,
         equals_type: Option<Box<EqualsType>>,
     },
     Struct {
         struct_token: Token,
         name_token: Token,
+        parameters: Option<Box<ParenthesisParameters>>,
         members: Members,
     },
     Function {
         fn_token: Token,
         name_token: Token,
-        parameters: Parameters,
+        parameters: ParenthesisParameters,
         return_type: Option<Box<ReturnType>>,
         body: Option<Box<Expression>>,
     },
@@ -63,7 +65,7 @@ pub struct Member {
 }
 
 #[derive(Debug)]
-pub struct Parameters {
+pub struct ParenthesisParameters {
     pub open_parenthesis_token: Token,
     pub parameters: Box<[Parameter]>,
     pub close_parenthesis_token: Token,
@@ -80,7 +82,17 @@ pub enum ParameterKind {
     Value {
         name_token: Token,
         colon_token: Token,
-        typ: Expression,
+        typ: Box<Expression>,
+    },
+    Type {
+        type_token: Token,
+        parameters: Option<Box<ParenthesisParameters>>,
+        name_token: Token,
+    },
+    Dyn {
+        dyn_token: Token,
+        parameters: Option<Box<ParenthesisParameters>>,
+        name_token: Token,
     },
 }
 
@@ -125,25 +137,20 @@ pub enum ExpressionKind {
         statements: Box<[Statement]>,
         close_brace_token: Token,
     },
-    Placeholder {
-        placeholder_token: Token,
-    },
     Name {
         name_token: Token,
     },
     Integer {
         integer_token: Token,
     },
-    Call {
+    ParenthesisCall {
         operand: Box<Expression>,
-        open_parenthesis_token: Token,
-        arguments: Box<[Argument]>,
-        close_parenthesis_token: Token,
+        arguments: ParenthesisArguments,
     },
     Let {
         let_token: Token,
         name_token: Token,
-        colon_type: Option<Box<ColonType>>,
+        colon_type: ColonType,
     },
     Constructor {
         typ: Box<Expression>,
@@ -151,18 +158,43 @@ pub enum ExpressionKind {
     },
     Function {
         fn_token: Token,
-        parameters: Parameters,
+        parameters: ParenthesisParameters,
         return_type: Option<Box<ReturnType>>,
+        body: Option<Box<Expression>>,
+    },
+    MemberAccess {
+        operand: Box<Expression>,
+        dot_token: Token,
+        name_token: Token,
     },
 }
 
 #[derive(Debug)]
+pub struct ParenthesisArguments {
+    pub open_parenthesis_token: Token,
+    pub arguments: Box<[Argument]>,
+    pub close_parenthesis_token: Token,
+}
+
+#[derive(Debug)]
 pub enum Argument {
-    Value { expression: Expression },
+    Value {
+        expression: Expression,
+    },
+    Type {
+        type_token: Token,
+        parameters: Option<Box<ParenthesisParameters>>,
+        typ: Expression,
+    },
+    Dyn {
+        dyn_token: Token,
+        parameters: Option<Box<ParenthesisParameters>>,
+        typ: Expression,
+    },
 }
 
 #[derive(Debug)]
 pub struct ColonType {
     pub colon_token: Token,
-    pub typ: Expression,
+    pub typ: Box<Expression>,
 }

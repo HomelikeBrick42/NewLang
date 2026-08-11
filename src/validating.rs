@@ -1,7 +1,7 @@
 use crate::{
     ast,
     lexer::{SourceLocation, TokenKind},
-    syntax_tree as st,
+    syntax_tree::{self as st, ParenthesisArguments, ParenthesisParameters},
 };
 use derive_more::Display;
 
@@ -28,6 +28,7 @@ pub fn validate_item(
             st::ItemKind::Type {
                 type_token: _,
                 name_token,
+                parameters,
                 equals_type,
             } => {
                 let TokenKind::Name(name) = name_token.kind else {
@@ -35,6 +36,17 @@ pub fn validate_item(
                 };
                 ast::ItemKind::Type {
                     name,
+                    parameters: if let Some(parameters) = parameters {
+                        Some(
+                            parameters
+                                .parameters
+                                .iter()
+                                .map(validate_parameter)
+                                .collect::<Result<_, ValidatingError>>()?,
+                        )
+                    } else {
+                        None
+                    },
                     typ: if let Some(equals_type) = equals_type {
                         assert!(!builtin, "builtin type aliases assigned a type");
                         validate_type(&equals_type.typ)?
@@ -59,6 +71,7 @@ pub fn validate_item(
             st::ItemKind::Struct {
                 struct_token: _,
                 name_token,
+                parameters,
                 members:
                     st::Members {
                         open_brace_token: _,
@@ -79,6 +92,17 @@ pub fn validate_item(
                         None
                     },
                     name,
+                    parameters: if let Some(parameters) = parameters {
+                        Some(
+                            parameters
+                                .parameters
+                                .iter()
+                                .map(validate_parameter)
+                                .collect::<Result<_, ValidatingError>>()?,
+                        )
+                    } else {
+                        None
+                    },
                     members: members
                         .iter()
                         .map(
@@ -116,26 +140,7 @@ pub fn validate_item(
                     parameters: parameters
                         .parameters
                         .iter()
-                        .map(|&st::Parameter { location, ref kind }| {
-                            Ok(ast::Parameter {
-                                location,
-                                kind: match kind {
-                                    st::ParameterKind::Value {
-                                        name_token,
-                                        colon_token: _,
-                                        typ,
-                                    } => {
-                                        let TokenKind::Name(name) = name_token.kind else {
-                                            unreachable!()
-                                        };
-                                        ast::ParameterKind::Value {
-                                            name,
-                                            typ: Box::new(validate_type(typ)?),
-                                        }
-                                    }
-                                },
-                            })
-                        })
+                        .map(validate_parameter)
                         .collect::<Result<_, ValidatingError>>()?,
                     return_type: if let Some(return_type) = return_type {
                         validate_type(&return_type.typ)?
@@ -151,6 +156,7 @@ pub fn validate_item(
                     } else if builtin {
                         ast::FunctionBody::Builtin(match name.as_str() {
                             "print_i64" => ast::BuiltinFunctionBody::PrintI64,
+                            "transmute" => ast::BuiltinFunctionBody::Transmute,
                             name => unreachable!("unknown builtin function '{name}'"),
                         })
                     } else {
@@ -165,7 +171,78 @@ pub fn validate_item(
     })
 }
 
-pub fn validate_statement(
+fn validate_parameter(
+    &st::Parameter { location, ref kind }: &st::Parameter,
+) -> Result<ast::Parameter, ValidatingError> {
+    Ok(ast::Parameter {
+        location,
+        kind: match kind {
+            st::ParameterKind::Value {
+                name_token,
+                colon_token: _,
+                typ,
+            } => ast::ParameterKind::Value {
+                name: {
+                    let TokenKind::Name(name) = name_token.kind else {
+                        unreachable!()
+                    };
+                    name
+                },
+                typ: Box::new(validate_type(typ)?),
+            },
+
+            st::ParameterKind::Type {
+                type_token: _,
+                parameters,
+                name_token,
+            } => ast::ParameterKind::Type {
+                parameters: if let Some(parameters) = parameters {
+                    Some(
+                        parameters
+                            .parameters
+                            .iter()
+                            .map(validate_parameter)
+                            .collect::<Result<_, ValidatingError>>()?,
+                    )
+                } else {
+                    None
+                },
+                name: {
+                    let TokenKind::Name(name) = name_token.kind else {
+                        unreachable!()
+                    };
+                    name
+                },
+            },
+
+            st::ParameterKind::Dyn {
+                dyn_token: _,
+                parameters,
+                name_token,
+            } => ast::ParameterKind::Dyn {
+                parameters: if let Some(parameters) = parameters {
+                    Some(
+                        parameters
+                            .parameters
+                            .iter()
+                            .map(validate_parameter)
+                            .collect::<Result<_, ValidatingError>>()?,
+                    )
+                } else {
+                    None
+                },
+                name: {
+                    let TokenKind::Name(name) = name_token.kind else {
+                        unreachable!()
+                    };
+                    name
+                },
+            },
+        },
+    })
+}
+
+fn validate_statement(
     &st::Statement { location, ref kind }: &st::Statement,
 ) -> Result<ast::Statement, ValidatingError> {
     Ok(ast::Statement {
@@ -191,7 +268,7 @@ pub fn validate_statement(
     })
 }
 
-pub fn validate_expression(
+fn validate_expression(
     expression @ &st::Expression { location, ref kind }: &st::Expression,
 ) -> Result<ast::Expression, ValidatingError> {
     Ok(ast::Expression {
@@ -241,7 +318,9 @@ pub fn validate_expression(
                 }
             }
 
-            st::ExpressionKind::Name { .. } | st::ExpressionKind::Let { .. } => {
+            st::ExpressionKind::Name { .. }
+            | st::ExpressionKind::Let { .. }
+            | st::ExpressionKind::MemberAccess { .. } => {
                 ast::ExpressionKind::Place(Box::new(validate_place(expression)?))
             }
 
@@ -252,22 +331,19 @@ pub fn validate_expression(
                 ast::ExpressionKind::Integer(value)
             }
 
-            st::ExpressionKind::Call {
+            st::ExpressionKind::ParenthesisCall {
                 operand,
-                open_parenthesis_token: _,
-                arguments,
-                close_parenthesis_token: _,
+                arguments:
+                    ParenthesisArguments {
+                        open_parenthesis_token: _,
+                        arguments,
+                        close_parenthesis_token: _,
+                    },
             } => ast::ExpressionKind::Call {
                 operand: Box::new(validate_expression(operand)?),
                 arguments: arguments
                     .iter()
-                    .map(|argument| {
-                        Ok(match argument {
-                            st::Argument::Value { expression } => ast::Argument::Value {
-                                expression: validate_expression(expression)?,
-                            },
-                        })
-                    })
+                    .map(validate_argument)
                     .collect::<Result<_, ValidatingError>>()?,
             },
 
@@ -297,17 +373,98 @@ pub fn validate_expression(
                     .collect::<Result<_, ValidatingError>>()?,
             },
 
-            st::ExpressionKind::Placeholder { .. } | st::ExpressionKind::Function { .. } => {
-                return Err(ValidatingError {
-                    location,
-                    kind: ValidatingErrorKind::ExpectedExpression,
-                });
-            }
+            st::ExpressionKind::Function {
+                fn_token: _,
+                parameters:
+                    ParenthesisParameters {
+                        open_parenthesis_token: _,
+                        parameters,
+                        close_parenthesis_token,
+                    },
+                return_type,
+                body,
+            } => ast::ExpressionKind::Function {
+                parameters: parameters
+                    .iter()
+                    .map(validate_parameter)
+                    .collect::<Result<_, ValidatingError>>()?,
+                return_type: if let Some(return_type) = return_type {
+                    Box::new(validate_type(&return_type.typ)?)
+                } else {
+                    Box::new(ast::Type {
+                        location: close_parenthesis_token.location,
+                        kind: ast::TypeKind::Builtin(ast::BuiltinType::Unit),
+                    })
+                },
+                body: if let Some(body) = body {
+                    Box::new(validate_expression(body)?)
+                } else {
+                    return Err(ValidatingError {
+                        location,
+                        kind: ValidatingErrorKind::ExpectedExpression,
+                    });
+                },
+            },
         },
     })
 }
 
-pub fn validate_pattern(
+fn validate_argument(argument: &st::Argument) -> Result<ast::Argument, ValidatingError> {
+    Ok(match argument {
+        st::Argument::Value { expression } => ast::Argument {
+            location: expression.location,
+            kind: ast::ArgumentKind::Value {
+                expression: validate_expression(expression)?,
+            },
+        },
+
+        st::Argument::Type {
+            type_token,
+            parameters,
+            typ,
+        } => ast::Argument {
+            location: type_token.location,
+            kind: ast::ArgumentKind::Type {
+                parameters: if let Some(parameters) = parameters {
+                    Some(
+                        parameters
+                            .parameters
+                            .iter()
+                            .map(validate_parameter)
+                            .collect::<Result<_, ValidatingError>>()?,
+                    )
+                } else {
+                    None
+                },
+                typ: Box::new(validate_type(typ)?),
+            },
+        },
+
+        st::Argument::Dyn {
+            dyn_token,
+            parameters,
+            typ,
+        } => ast::Argument {
+            location: dyn_token.location,
+            kind: ast::ArgumentKind::Dyn {
+                parameters: if let Some(parameters) = parameters {
+                    Some(
+                        parameters
+                            .parameters
+                            .iter()
+                            .map(validate_parameter)
+                            .collect::<Result<_, ValidatingError>>()?,
+                    )
+                } else {
+                    None
+                },
+                typ: Box::new(validate_type(typ)?),
+            },
+        },
+    })
+}
+
+fn validate_pattern(
     expression @ &st::Expression { location, ref kind }: &st::Expression,
 ) -> Result<ast::Pattern, ValidatingError> {
     Ok(ast::Pattern {
@@ -319,11 +476,9 @@ pub fn validate_pattern(
                 close_parenthesis_token: _,
             } => return validate_pattern(expression),
 
-            st::ExpressionKind::Placeholder {
-                placeholder_token: _,
-            } => ast::PatternKind::Discard,
-
-            st::ExpressionKind::Name { .. } | st::ExpressionKind::Let { .. } => {
+            st::ExpressionKind::Name { .. }
+            | st::ExpressionKind::Let { .. }
+            | st::ExpressionKind::MemberAccess { .. } => {
                 ast::PatternKind::Place(Box::new(validate_place(expression)?))
             }
 
@@ -361,7 +516,7 @@ pub fn validate_pattern(
             },
 
             st::ExpressionKind::Block { .. }
-            | st::ExpressionKind::Call { .. }
+            | st::ExpressionKind::ParenthesisCall { .. }
             | st::ExpressionKind::Function { .. } => {
                 return Err(ValidatingError {
                     location,
@@ -372,7 +527,7 @@ pub fn validate_pattern(
     })
 }
 
-pub fn validate_place(
+fn validate_place(
     &st::Expression { location, ref kind }: &st::Expression,
 ) -> Result<ast::Place, ValidatingError> {
     Ok(ast::Place {
@@ -396,35 +551,39 @@ pub fn validate_place(
                     };
                     name
                 },
-                typ: Box::new(if let Some(colon_type) = colon_type {
-                    validate_type(&colon_type.typ)?
-                } else {
-                    ast::Type {
-                        location,
-                        kind: ast::TypeKind::Infer,
-                    }
-                }),
+                typ: Box::new(validate_type(&colon_type.typ)?),
+            },
+
+            st::ExpressionKind::MemberAccess {
+                operand,
+                dot_token: _,
+                name_token,
+            } => ast::PlaceKind::MemberAccess {
+                operand: Box::new(validate_expression(operand)?),
+                member_name: {
+                    let TokenKind::Name(name) = name_token.kind else {
+                        unreachable!()
+                    };
+                    name
+                },
             },
 
             st::ExpressionKind::ParenthesisedExpression { .. }
             | st::ExpressionKind::Block { .. }
-            | st::ExpressionKind::Placeholder { .. }
             | st::ExpressionKind::Integer { .. }
-            | st::ExpressionKind::Call { .. }
+            | st::ExpressionKind::ParenthesisCall { .. }
             | st::ExpressionKind::Constructor { .. }
             | st::ExpressionKind::Function { .. } => unreachable!(),
         },
     })
 }
 
-pub fn validate_type(
+fn validate_type(
     &st::Expression { location, ref kind }: &st::Expression,
 ) -> Result<ast::Type, ValidatingError> {
     Ok(ast::Type {
         location,
         kind: match kind {
-            st::ExpressionKind::Placeholder { .. } => ast::TypeKind::Infer,
-
             st::ExpressionKind::Name { name_token } => {
                 let TokenKind::Name(name) = name_token.kind else {
                     unreachable!()
@@ -436,47 +595,53 @@ pub fn validate_type(
                 fn_token: _,
                 parameters,
                 return_type,
-            } => ast::TypeKind::Function {
-                parameters: parameters
-                    .parameters
-                    .iter()
-                    .map(|parameter| {
-                        Ok(ast::Parameter {
-                            location: parameter.location,
-                            kind: match parameter.kind {
-                                st::ParameterKind::Value {
-                                    ref name_token,
-                                    colon_token: _,
-                                    ref typ,
-                                } => ast::ParameterKind::Value {
-                                    name: {
-                                        let TokenKind::Name(name) = name_token.kind else {
-                                            unreachable!()
-                                        };
-                                        name
-                                    },
-                                    typ: Box::new(validate_type(typ)?),
-                                },
-                            },
+                body,
+            } => {
+                if let Some(body) = body {
+                    return Err(ValidatingError {
+                        location: body.location,
+                        kind: ValidatingErrorKind::ExpectedType,
+                    });
+                };
+                ast::TypeKind::Function {
+                    parameters: parameters
+                        .parameters
+                        .iter()
+                        .map(validate_parameter)
+                        .collect::<Result<_, ValidatingError>>()?,
+                    return_type: if let Some(return_type) = return_type {
+                        Box::new(validate_type(&return_type.typ)?)
+                    } else {
+                        Box::new(ast::Type {
+                            location: parameters.close_parenthesis_token.location,
+                            kind: ast::TypeKind::Builtin(ast::BuiltinType::Unit),
                         })
-                    })
+                    },
+                }
+            }
+
+            st::ExpressionKind::ParenthesisCall {
+                operand,
+                arguments:
+                    ParenthesisArguments {
+                        open_parenthesis_token: _,
+                        arguments,
+                        close_parenthesis_token: _,
+                    },
+            } => ast::TypeKind::Arguments {
+                typ: Box::new(validate_type(operand)?),
+                arguments: arguments
+                    .iter()
+                    .map(validate_argument)
                     .collect::<Result<_, ValidatingError>>()?,
-                return_type: if let Some(return_type) = return_type {
-                    Box::new(validate_type(&return_type.typ)?)
-                } else {
-                    Box::new(ast::Type {
-                        location: parameters.close_parenthesis_token.location,
-                        kind: ast::TypeKind::Builtin(ast::BuiltinType::Unit),
-                    })
-                },
             },
 
             st::ExpressionKind::ParenthesisedExpression { .. }
             | st::ExpressionKind::Block { .. }
             | st::ExpressionKind::Integer { .. }
-            | st::ExpressionKind::Call { .. }
             | st::ExpressionKind::Let { .. }
-            | st::ExpressionKind::Constructor { .. } => {
+            | st::ExpressionKind::Constructor { .. }
+            | st::ExpressionKind::MemberAccess { .. } => {
                 return Err(ValidatingError {
                     location,
                     kind: ValidatingErrorKind::ExpectedType,
