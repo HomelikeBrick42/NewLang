@@ -11,7 +11,7 @@ type I64
 fn print_i64(value: I64, runtime: Runtime)
 
 #[builtin]
-fn transmute(type T, type U, value: T) -> U
+unsafe fn transmute(type T, type U, value: T) -> U
 
 struct Erased(type(dyn T) Type) {
     value: Type(Unit),
@@ -19,7 +19,9 @@ struct Erased(type(dyn T) Type) {
 
 fn erase(type(dyn U) Type, type T, value: Type(T)) -> Erased(Type) {
     Erased(Type) {
-        value: transmute(Type(T), Type(Unit), value),
+        // SAFETY: Type has a dyn type parameter, so its memory layout does not depend on the type passed in,
+        // so transmuting Type(T) to Type(Unit) here is fine since they have the same memory layout
+        value: unsafe { transmute(Type(T), Type(Unit), value) },
     }
 }
 

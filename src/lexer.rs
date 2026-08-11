@@ -45,6 +45,8 @@ pub enum TokenKind {
     EnumKeyword,
     #[display("builtin")]
     BuiltinKeyword,
+    #[display("unsafe")]
+    UnsafeKeyword,
 
     #[display("#")]
     Hash,
@@ -223,6 +225,7 @@ impl<'source> Lexer<'source> {
                             "struct" => TokenKind::StructKeyword,
                             "enum" => TokenKind::EnumKeyword,
                             "builtin" => TokenKind::BuiltinKeyword,
+                            "unsafe" => TokenKind::UnsafeKeyword,
                             name => TokenKind::Name(name.into()),
                         }
                     }

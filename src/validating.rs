@@ -126,6 +126,7 @@ pub fn validate_item(
             }
 
             st::ItemKind::Function {
+                unsafe_token,
                 fn_token: _,
                 name_token,
                 parameters,
@@ -136,6 +137,7 @@ pub fn validate_item(
                     unreachable!()
                 };
                 ast::ItemKind::Function {
+                    is_unsafe: unsafe_token.is_some(),
                     name,
                     parameters: parameters
                         .parameters
@@ -281,6 +283,7 @@ fn validate_expression(
             } => return validate_expression(expression),
 
             st::ExpressionKind::Block {
+                unsafe_token,
                 open_brace_token: _,
                 statements,
                 close_brace_token,
@@ -312,6 +315,7 @@ fn validate_expression(
                 };
 
                 ast::ExpressionKind::Block {
+                    is_unsafe: unsafe_token.is_some(),
                     end_location: close_brace_token.location,
                     statements: statements.into_boxed_slice(),
                     last_expression,
@@ -374,6 +378,7 @@ fn validate_expression(
             },
 
             st::ExpressionKind::Function {
+                unsafe_token,
                 fn_token: _,
                 parameters:
                     ParenthesisParameters {
@@ -384,6 +389,7 @@ fn validate_expression(
                 return_type,
                 body,
             } => ast::ExpressionKind::Function {
+                is_unsafe: unsafe_token.is_some(),
                 parameters: parameters
                     .iter()
                     .map(validate_parameter)
@@ -592,6 +598,7 @@ fn validate_type(
             }
 
             st::ExpressionKind::Function {
+                unsafe_token,
                 fn_token: _,
                 parameters,
                 return_type,
@@ -604,6 +611,7 @@ fn validate_type(
                     });
                 };
                 ast::TypeKind::Function {
+                    is_unsafe: unsafe_token.is_some(),
                     parameters: parameters
                         .parameters
                         .iter()

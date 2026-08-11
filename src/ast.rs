@@ -20,6 +20,7 @@ pub enum ItemKind {
         members: Box<[StructMember]>,
     },
     Function {
+        is_unsafe: bool,
         name: InternedStr,
         parameters: Box<[Parameter]>,
         return_type: Type,
@@ -100,6 +101,7 @@ pub enum ExpressionKind {
     Place(Box<Place>),
     Integer(u64),
     Block {
+        is_unsafe: bool,
         end_location: SourceLocation,
         statements: Box<[Statement]>,
         last_expression: Box<Expression>,
@@ -113,6 +115,7 @@ pub enum ExpressionKind {
         members: Box<[ConstructorMember]>,
     },
     Function {
+        is_unsafe: bool,
         parameters: Box<[Parameter]>,
         return_type: Box<Type>,
         body: Box<Expression>,
@@ -201,6 +204,7 @@ pub enum TypeKind {
     DeclareBuiltin(BuiltinTypeAlias),
     Builtin(BuiltinType),
     Function {
+        is_unsafe: bool,
         parameters: Box<[Parameter]>,
         return_type: Box<Type>,
     },

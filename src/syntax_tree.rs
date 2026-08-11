@@ -36,6 +36,7 @@ pub enum ItemKind {
         members: Members,
     },
     Function {
+        unsafe_token: Option<Token>,
         fn_token: Token,
         name_token: Token,
         parameters: ParenthesisParameters,
@@ -133,6 +134,7 @@ pub enum ExpressionKind {
         close_parenthesis_token: Token,
     },
     Block {
+        unsafe_token: Option<Token>,
         open_brace_token: Token,
         statements: Box<[Statement]>,
         close_brace_token: Token,
@@ -157,6 +159,7 @@ pub enum ExpressionKind {
         members: Members,
     },
     Function {
+        unsafe_token: Option<Token>,
         fn_token: Token,
         parameters: ParenthesisParameters,
         return_type: Option<Box<ReturnType>>,
