@@ -644,7 +644,7 @@ fn parse_argument(lexer: &mut Lexer<'_>) -> Result<Argument, ParsingError> {
                 } else {
                     None
                 },
-                typ: parse_expression(lexer, true)?,
+                r#dyn: parse_expression(lexer, true)?,
             }
         }
 

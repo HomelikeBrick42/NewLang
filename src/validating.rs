@@ -34,7 +34,7 @@ pub fn validate_item(
                 let TokenKind::Name(name) = name_token.kind else {
                     unreachable!()
                 };
-                ast::ItemKind::Type {
+                ast::ItemKind::TypeAlias {
                     name,
                     parameters: if let Some(parameters) = parameters {
                         Some(
@@ -53,9 +53,9 @@ pub fn validate_item(
                     } else if builtin {
                         ast::Type {
                             location,
-                            kind: ast::TypeKind::DeclareBuiltin(match name.as_str() {
-                                "Runtime" => ast::BuiltinTypeAlias::Runtime,
-                                "I64" => ast::BuiltinTypeAlias::I64,
+                            kind: ast::TypeKind::Builtin(match name.as_str() {
+                                "Runtime" => ast::BuiltinType::Runtime,
+                                "I64" => ast::BuiltinType::I64,
                                 name => unreachable!("unknown builtin type alias '{name}'"),
                             }),
                         }
@@ -403,7 +403,7 @@ fn validate_expression(
                     })
                 },
                 body: if let Some(body) = body {
-                    Box::new(validate_expression(body)?)
+                    ast::FunctionBody::Expression(Box::new(validate_expression(body)?))
                 } else {
                     return Err(ValidatingError {
                         location,
@@ -449,7 +449,7 @@ fn validate_argument(argument: &st::Argument) -> Result<ast::Argument, Validatin
         st::Argument::Dyn {
             dyn_token,
             parameters,
-            typ,
+            r#dyn,
         } => ast::Argument {
             location: dyn_token.location,
             kind: ast::ArgumentKind::Dyn {
@@ -464,7 +464,7 @@ fn validate_argument(argument: &st::Argument) -> Result<ast::Argument, Validatin
                 } else {
                     None
                 },
-                typ: Box::new(validate_type(typ)?),
+                r#dyn: Box::new(validate_type(r#dyn)?),
             },
         },
     })

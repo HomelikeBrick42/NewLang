@@ -192,7 +192,7 @@ pub enum Argument {
     Dyn {
         dyn_token: Token,
         parameters: Option<Box<ParenthesisParameters>>,
-        typ: Expression,
+        r#dyn: Expression,
     },
 }
 

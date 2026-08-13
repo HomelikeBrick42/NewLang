@@ -14,19 +14,19 @@ fn print_i64(value: I64, runtime: Runtime)
 unsafe fn transmute(type T, type U, value: T) -> U
 
 struct Erased(type(dyn T) Type) {
-    value: Type(Unit),
+    value: Type(type Unit),
 }
 
-fn erase(type(dyn U) Type, type T, value: Type(T)) -> Erased(Type) {
-    Erased(Type) {
+fn erase(type(dyn U) Type, type T, value: Type(type T)) -> Erased(type(dyn U) Type(dyn U)) {
+    Erased(type(dyn U) Type(dyn U)) {
         // SAFETY: Type has a dyn type parameter, so its memory layout does not depend on the type passed in,
         // so transmuting Type(T) to Type(Unit) here is fine since they have the same memory layout
-        value: unsafe { transmute(Type(T), Type(Unit), value) },
+        value: unsafe { transmute(type Type(type T), type Type(type Unit), value) },
     }
 }
 
-fn access(type(dyn T) Type, erased: Erased(Type), callback: fn(dyn U, value: Type(U))) {
-    callback(Unit, erased.value)
+fn access(type(dyn T) Type, erased: Erased(type(dyn T) Type(dyn T)), callback: fn(dyn U, value: Type(dyn U))) {
+    callback(type Unit, erased.value)
 }
 
 fn main(runtime: Runtime) -> Unit {
@@ -37,6 +37,6 @@ fn main(runtime: Runtime) -> Unit {
 
     struct Stuff(dyn T) {}
 
-    let erased: Erased(Stuff) = erase(Stuff, I32, Stuff(I32) {})
-    access(Stuff, erased, fn(dyn U, value: Stuff(U)) {})
+    let erased: Erased(type(dyn T) Stuff(dyn T)) = erase(type(dyn T) Stuff(dyn T), type I64, Stuff(type I64) {})
+    access(type(dyn T) Stuff(dyn T), erased, fn(dyn U, value: Stuff(dyn U)) {})
 }

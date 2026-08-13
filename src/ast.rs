@@ -8,7 +8,7 @@ pub struct Item {
 
 #[derive(Debug)]
 pub enum ItemKind {
-    Type {
+    TypeAlias {
         name: InternedStr,
         parameters: Option<Box<[Parameter]>>,
         typ: Type,
@@ -118,7 +118,7 @@ pub enum ExpressionKind {
         is_unsafe: bool,
         parameters: Box<[Parameter]>,
         return_type: Box<Type>,
-        body: Box<Expression>,
+        body: FunctionBody,
     },
 }
 
@@ -139,7 +139,7 @@ pub enum ArgumentKind {
     },
     Dyn {
         parameters: Option<Box<[Parameter]>>,
-        typ: Box<Type>,
+        r#dyn: Box<Type>,
     },
 }
 
@@ -201,7 +201,6 @@ pub struct Type {
 #[derive(Debug)]
 pub enum TypeKind {
     Name(InternedStr),
-    DeclareBuiltin(BuiltinTypeAlias),
     Builtin(BuiltinType),
     Function {
         is_unsafe: bool,
@@ -212,12 +211,6 @@ pub enum TypeKind {
         typ: Box<Type>,
         arguments: Box<[Argument]>,
     },
-}
-
-#[derive(Debug)]
-pub enum BuiltinTypeAlias {
-    Runtime,
-    I64,
 }
 
 #[derive(Debug)]
