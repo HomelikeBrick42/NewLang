@@ -610,9 +610,84 @@ fn resolve_argument(
     Ok(rt::Argument {
         location: argument.location,
         kind: match argument.kind {
-            ast::ArgumentKind::Value { ref expression } => rt::ArgumentKind::Value {
-                expression: Box::new(resolve_expression(expression, program, names)?),
-            },
+            ast::ArgumentKind::Value { ref expression } => {
+                if let ast::ExpressionKind::Place(ref place) = expression.kind
+                    && let ast::PlaceKind::Name(name) = place.kind
+                    && let Some(name) = names.get(&name)
+                    && let Some(kind) = match *name {
+                        Name::TypeAlias(type_alias) => Some(rt::ArgumentKind::Type(rt::Type {
+                            location: argument.location,
+                            kind: rt::TypeKind::TypeAlias(type_alias),
+                        })),
+                        Name::Struct(structt) => Some(rt::ArgumentKind::Type(rt::Type {
+                            location: argument.location,
+                            kind: rt::TypeKind::Struct(structt),
+                        })),
+                        Name::GenericType(generic_type) => Some(rt::ArgumentKind::Type(rt::Type {
+                            location: argument.location,
+                            kind: rt::TypeKind::Generic(generic_type),
+                        })),
+                        Name::ParameterizedType(parameterized_type) => {
+                            Some(rt::ArgumentKind::ParameterizedType(parameterized_type))
+                        }
+                        Name::GenericDyn(generic_dyn) => Some(rt::ArgumentKind::Dyn(rt::Dyn {
+                            location: argument.location,
+                            kind: rt::DynKind::Generic(generic_dyn),
+                        })),
+                        Name::ParameterizedDyn(parameterized_dyn) => {
+                            Some(rt::ArgumentKind::ParameterizedDyn(parameterized_dyn))
+                        }
+                        Name::Function(_) | Name::Variable(_) => None,
+                    }
+                {
+                    kind
+                } else if let ast::ExpressionKind::Call {
+                    ref operand,
+                    ref arguments,
+                } = expression.kind
+                    && let ast::ExpressionKind::Place(ref place) = operand.kind
+                    && let ast::PlaceKind::Name(name) = place.kind
+                    && let Some(name) = names.get(&name)
+                    && let Some(kind) = match *name {
+                        Name::ParameterizedType(parameterized_type) => {
+                            Some(rt::ArgumentKind::Type(rt::Type {
+                                location: argument.location,
+                                kind: rt::TypeKind::Instantiation {
+                                    parameterized_type,
+                                    arguments: arguments
+                                        .iter()
+                                        .map(|argument| resolve_argument(argument, program, names))
+                                        .collect::<Result<Box<[_]>, _>>()?,
+                                },
+                            }))
+                        }
+                        Name::ParameterizedDyn(parameterized_dyn) => {
+                            Some(rt::ArgumentKind::Dyn(rt::Dyn {
+                                location: argument.location,
+                                kind: rt::DynKind::Instantiation {
+                                    parameterized_dyn,
+                                    arguments: arguments
+                                        .iter()
+                                        .map(|argument| resolve_argument(argument, program, names))
+                                        .collect::<Result<Box<[_]>, _>>()?,
+                                },
+                            }))
+                        }
+                        Name::TypeAlias(_)
+                        | Name::Struct(_)
+                        | Name::GenericType(_)
+                        | Name::GenericDyn(_)
+                        | Name::Function(_)
+                        | Name::Variable(_) => None,
+                    }
+                {
+                    kind
+                } else {
+                    rt::ArgumentKind::Value {
+                        expression: Box::new(resolve_expression(expression, program, names)?),
+                    }
+                }
+            }
 
             ast::ArgumentKind::Type {
                 ref parameters,
